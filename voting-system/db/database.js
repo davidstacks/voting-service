@@ -321,11 +321,7 @@ function searchPolls({ query, category, sort, page = 1, limit = 12 }) {
     params.push(category);
   }
 
-  // Exclude closed/expired for "active" sort
-  if (sort === 'active') {
-    sql += " AND is_closed = 0 AND (end_date IS NULL OR end_date > datetime('now')))"
-    // Fix: this is inside the WHERE, just order
-  }
+  // Note: active filter is applied in countBase/dataSql below
 
   let orderBy = " ORDER BY created_at DESC";
   if (sort === 'popular') orderBy = " ORDER BY total_votes DESC";

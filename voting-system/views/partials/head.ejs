@@ -3,7 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title><%= typeof title !== 'undefined' ? title : 'GVote' %></title>
+  <title><%= typeof title !== 'undefined' ? title : 'GVote — Free Voting Platform' %></title>
+  <meta name="description" content="<%= typeof metaDesc !== 'undefined' ? metaDesc : 'Create polls and votes instantly — no sign-up required. Share links, collect responses, and see live results.' %>">
+  <meta property="og:title" content="<%= typeof title !== 'undefined' ? title : 'GVote' %>">
+  <meta property="og:description" content="<%= typeof metaDesc !== 'undefined' ? metaDesc : 'Free anonymous voting platform. Create a poll in seconds.' %>">
+  <meta property="og:type" content="website">
   <link rel="stylesheet" href="/css/style.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 </head>

@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 const express = require('express');
 const session = require('express-session');
 const helmet = require('helmet');
@@ -214,10 +214,14 @@ app.get('/v/:slug', (req, res) => {
 
 // JSON API for live results
 app.get('/v/:slug/results.json', (req, res) => {
-  const poll = db.getPollBySlug(req.params.slug);
-  if (!poll) return res.status(404).json({ error: 'Not found' });
-  const results = db.getPollResults(poll.id);
-  res.json({ totalVotes: poll.total_votes, results, isClosed: !!poll.is_closed });
+  try {
+    const poll = db.getPollBySlug(req.params.slug);
+    if (!poll) return res.status(404).json({ error: 'Not found' });
+    const results = db.getPollResults(poll.id);
+    res.json({ totalVotes: poll.total_votes, results, isClosed: !!poll.is_closed });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 // Embed view

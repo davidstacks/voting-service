@@ -1,4 +1,56 @@
-// GVote — Voting Hosting Platform Client JS
+// GVote — Voting Hosting Platform Client JS  v2.0
+
+// ===== Animated Counter =====
+function animateCounter(el) {
+  const raw = el.textContent.replace(/[^0-9.]/g, '');
+  const target = parseFloat(raw);
+  if (isNaN(target) || target === 0) return;
+  const duration = Math.min(1500, 300 + target * 0.4);
+  const startTime = performance.now();
+  el.textContent = '0';
+  function tick(now) {
+    const elapsed = now - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    const current = Math.round(eased * target);
+    el.textContent = current.toLocaleString();
+    if (progress < 1) requestAnimationFrame(tick);
+    else el.textContent = target.toLocaleString();
+  }
+  requestAnimationFrame(tick);
+}
+
+// ===== Animate Result Bars on Load =====
+function animateResultBars() {
+  document.querySelectorAll('.result-bar').forEach(bar => {
+    const target = bar.style.width;
+    bar.style.width = '0%';
+    bar.style.transition = 'none';
+    setTimeout(() => {
+      bar.style.transition = 'width 0.8s cubic-bezier(0.4, 0, 0.2, 1)';
+      bar.style.width = target;
+    }, 80);
+  });
+}
+
+// ===== Countdown Timer =====
+function startCountdown(el) {
+  const end = new Date(el.dataset.end);
+  function update() {
+    const diff = end - Date.now();
+    if (diff <= 0) { el.innerHTML = '<i class="fas fa-clock"></i> Ended'; return; }
+    const d = Math.floor(diff / 86400000);
+    const h = Math.floor((diff % 86400000) / 3600000);
+    const m = Math.floor((diff % 3600000) / 60000);
+    const s = Math.floor((diff % 60000) / 1000);
+    if (d > 0) el.innerHTML = `<i class="fas fa-clock"></i> Ends in ${d}d ${h}h`;
+    else if (h > 0) el.innerHTML = `<i class="fas fa-clock"></i> Ends in ${h}h ${m}m`;
+    else el.innerHTML = `<i class="fas fa-clock"></i> Ends in ${m}m ${s}s`;
+  }
+  update();
+  setInterval(update, 1000);
+}
+
 
 // ===== Device Fingerprinting =====
 async function generateDeviceFingerprint() {
@@ -64,6 +116,23 @@ document.addEventListener('DOMContentLoaded', () => {
   if (fpField) {
     generateDeviceFingerprint().then(fp => { fpField.value = fp; }).catch(() => {});
   }
+
+  // ===== Animated Counters (landing stats) =====
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        animateCounter(entry.target);
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.5 });
+  document.querySelectorAll('.stat-num').forEach(el => observer.observe(el));
+
+  // ===== Animate Result Bars on Load =====
+  animateResultBars();
+
+  // ===== Countdown Timers =====
+  document.querySelectorAll('[data-end]').forEach(el => startCountdown(el));
 
   // ===== Auto-dismiss Alerts =====
   document.querySelectorAll('.alert').forEach(el => {
@@ -202,6 +271,12 @@ document.addEventListener('DOMContentLoaded', () => {
           if (!res.ok) return;
           const data = await res.json();
           updateResultsUI(data);
+          // Flash the live indicator
+          const liveDot = document.getElementById('live-dot');
+          if (liveDot) {
+            liveDot.style.opacity = '0.3';
+            setTimeout(() => { liveDot.style.opacity = '1'; }, 300);
+          }
         } catch (_) {}
       }, 5000);
     }
@@ -212,7 +287,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const totalEl = document.getElementById('total-votes-num');
     if (!list || !data.results) return;
 
-    if (totalEl) totalEl.textContent = data.totalVotes;
+    if (totalEl) totalEl.textContent = data.totalVotes.toLocaleString();
 
     list.innerHTML = data.results.map((r, i) => {
       const pct = data.totalVotes > 0 ? ((r.vote_count / data.totalVotes) * 100).toFixed(1) : 0;
@@ -226,10 +301,12 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="result-bar-bg">
             <div class="result-bar" style="width: ${pct}%"></div>
           </div>
-          <div class="result-votes">${r.vote_count} vote${r.vote_count !== 1 ? 's' : ''}</div>
+          <div class="result-votes">${r.vote_count.toLocaleString()} vote${r.vote_count !== 1 ? 's' : ''}</div>
         </div>
       `;
     }).join('');
+    // Animate new bars
+    animateResultBars();
   }
 
   function escapeHtml(str) {
