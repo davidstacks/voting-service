@@ -94,7 +94,7 @@ app.use((req, res, next) => {
 function verifyCsrf(req, res, next) {
   const token = req.body._csrf;
   if (!token || token !== req.session.csrf) {
-    return res.status(403).render('error', { title: '403 - Forbidden', message: 'Invalid form token. Please go back and try again.', code: 403 });
+    return sendError(res, 403, 'Invalid form token. Please go back and try again.');
   }
   next();
 }
@@ -102,6 +102,15 @@ function verifyCsrf(req, res, next) {
 // Wrap async route handlers — propagates thrown errors to Express error handler
 function asyncHandler(fn) {
   return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+}
+
+// Safe error renderer — falls back to plain HTML if the error view itself fails
+function sendError(res, code, message) {
+  try {
+    res.status(code).render('error', { title: `${code}`, message, code });
+  } catch (_) {
+    res.status(code).send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${code} — GVote</title></head><body style="font-family:sans-serif;text-align:center;padding:4rem;background:#060818;color:#f0f4ff"><h1 style="font-size:5rem;color:#7c3aed;margin:0">${code}</h1><p style="color:#94a3b8">${message}</p><a href="/" style="display:inline-block;margin-top:1.5rem;padding:.7rem 1.5rem;background:#7c3aed;color:#fff;border-radius:10px;text-decoration:none">Go Home</a></body></html>`);
+  }
 }
 
 function getClientIp(req) {
@@ -233,7 +242,7 @@ app.post('/create', createLimiter, verifyCsrf,
 // Verify Access Code
 app.post('/v/:slug/verify-access', asyncHandler(async (req, res) => {
   const poll = db.getPollBySlug(req.params.slug);
-  if (!poll) return res.status(404).render('error', { title: '404', message: 'Vote not found.', code: 404 });
+  if (!poll) return sendError(res, 404, 'Vote not found.');
   const { accessCode } = req.body;
   if (!accessCode || !db.verifyAccessCode(poll, accessCode)) {
     req.session.error = 'Incorrect access code. Please try again.';
@@ -247,7 +256,7 @@ app.post('/v/:slug/verify-access', asyncHandler(async (req, res) => {
 // Vote page — view & cast vote
 app.get('/v/:slug', asyncHandler(async (req, res) => {
   const poll = db.getPollBySlug(req.params.slug);
-  if (!poll) return res.status(404).render('error', { title: '404', message: 'Vote not found.', code: 404 });
+  if (!poll) return sendError(res, 404, 'Vote not found.');
 
   const options    = db.getOptionsByPoll(poll.id);
   const isOwner    = req.session.myPolls && req.session.myPolls.includes(poll.id);
@@ -303,7 +312,7 @@ app.get('/v/:slug/embed', (req, res) => {
 // Cast vote
 app.post('/v/:slug/vote', voteLimiter, asyncHandler(async (req, res) => {
   const poll = db.getPollBySlug(req.params.slug);
-  if (!poll) return res.status(404).render('error', { title: '404', message: 'Vote not found.', code: 404 });
+  if (!poll) return sendError(res, 404, 'Vote not found.');
 
   // Access code guard
   const isOwner   = req.session.myPolls && req.session.myPolls.includes(poll.id);
@@ -352,7 +361,7 @@ app.post('/v/:slug/vote', voteLimiter, asyncHandler(async (req, res) => {
 // Admin: close/reopen/delete/duplicate poll
 app.post('/v/:slug/admin', verifyCsrf, asyncHandler(async (req, res) => {
   const poll = db.getPollBySlug(req.params.slug);
-  if (!poll) return res.status(404).render('error', { title: '404', message: 'Vote not found.', code: 404 });
+  if (!poll) return sendError(res, 404, 'Vote not found.');
 
   const { action, adminPassword } = req.body;
   const isOwner = req.session.myPolls && req.session.myPolls.includes(poll.id);
@@ -391,7 +400,7 @@ app.post('/v/:slug/admin', verifyCsrf, asyncHandler(async (req, res) => {
 // Results page (standalone)
 app.get('/v/:slug/results', asyncHandler(async (req, res) => {
   const poll = db.getPollBySlug(req.params.slug);
-  if (!poll) return res.status(404).render('error', { title: '404', message: 'Vote not found.', code: 404 });
+  if (!poll) return sendError(res, 404, 'Vote not found.');
   const results    = db.getPollResults(poll.id);
   const voters     = db.getPollVoters(poll.id);
   const isOwner    = req.session.myPolls && req.session.myPolls.includes(poll.id);
@@ -403,14 +412,14 @@ app.get('/v/:slug/results', asyncHandler(async (req, res) => {
 
 // 404
 app.use((req, res) => {
-  res.status(404).render('error', { title: '404 - Not Found', message: 'Page not found.', code: 404 });
+  sendError(res, 404, 'Page not found.');
 });
 
 // Error handler
 app.use((err, req, res, next) => {
   console.error('SERVER ERROR:', err.stack);
   if (res.headersSent) return next(err);
-  res.status(500).render('error', { title: '500 - Server Error', message: 'Something went wrong on our end.', code: 500 });
+  sendError(res, 500, 'Something went wrong on our end.');
 });
 
 app.listen(PORT, '0.0.0.0', () => {

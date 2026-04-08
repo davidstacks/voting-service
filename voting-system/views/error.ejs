@@ -1,5 +1,20 @@
-<%- include('partials/head') %>
-<%- include('partials/nav') %>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= code %> — GVote</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body>
+<nav class="top-nav">
+  <a href="/" class="logo"><i class="fas fa-poll"></i> GVote</a>
+  <div class="nav-links">
+    <a href="/explore" class="nav-link"><i class="fas fa-compass"></i> <span>Explore</span></a>
+    <a href="/create" class="btn btn-primary btn-sm"><i class="fas fa-plus"></i> Create</a>
+  </div>
+</nav>
 
 <div class="error-page">
   <div class="error-code"><%= code %></div>
@@ -7,4 +22,14 @@
   <a href="/" class="btn btn-primary"><i class="fas fa-home"></i> Go Home</a>
 </div>
 
-<%- include('partials/footer') %>
+<footer class="site-footer">
+  <div class="footer-inner">
+    <div class="footer-brand">
+      <span class="footer-logo"><i class="fas fa-poll"></i> GVote</span>
+      <p>Free anonymous voting platform.</p>
+    </div>
+  </div>
+</footer>
+<script src="/js/app.js"></script>
+</body>
+</html>
