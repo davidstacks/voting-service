@@ -1,0 +1,136 @@
+<%- include('../partials/head') %>
+<div class="app-container">
+  <%- include('../partials/sidebar') %>
+  <div class="main-content">
+    <%- include('../partials/alerts') %>
+
+    <div class="page-header">
+      <div>
+        <h2><%= election.title %></h2>
+        <p><%= election.description %></p>
+      </div>
+      <a href="/dashboard" class="btn btn-outline"><i class="fas fa-arrow-left"></i> Back</a>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card blue">
+        <div class="stat-icon">🗳️</div>
+        <div class="stat-value"><%= voteCount %></div>
+        <div class="stat-label">Total Votes</div>
+      </div>
+      <div class="stat-card green">
+        <div class="stat-icon">📊</div>
+        <div class="stat-value"><%= turnout %>%</div>
+        <div class="stat-label">Voter Turnout</div>
+      </div>
+      <div class="stat-card purple">
+        <div class="stat-icon">👥</div>
+        <div class="stat-value"><%= candidates.length %></div>
+        <div class="stat-label">Candidates</div>
+      </div>
+      <div class="stat-card <%= isActive ? 'green' : 'gray' %>">
+        <div class="stat-icon"><%= isActive ? '🟢' : '🔴' %></div>
+        <div class="stat-value"><%= isActive ? 'Open' : election.status.charAt(0).toUpperCase() + election.status.slice(1) %></div>
+        <div class="stat-label">Status</div>
+      </div>
+    </div>
+
+    <div class="security-banner">
+      <i class="fas fa-shield-halved"></i>
+      <span>Your vote is encrypted with SHA-256 • Anonymous ballot • One vote per person</span>
+    </div>
+
+    <% if (isActive && !hasVoted) { %>
+      <!-- VOTING FORM -->
+      <div class="card" style="margin-bottom: 2rem;">
+        <div class="card-header">
+          <h3><i class="fas fa-vote-yea" style="color: #34d399;"></i> Cast Your Vote</h3>
+          <span class="badge badge-success">OPEN</span>
+        </div>
+        <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 1.25rem;">
+          Select your preferred candidate below. Your vote is final and cannot be changed.
+        </p>
+        <form id="vote-form" method="POST" action="/dashboard/election/<%= election.id %>/vote">
+          <input type="hidden" name="deviceFingerprint" id="deviceFingerprint" value="">
+          <div class="candidate-list">
+            <% candidates.forEach(c => { %>
+              <label class="candidate-card">
+                <input type="radio" name="candidateId" value="<%= c.id %>" required>
+                <div class="check-icon"><i class="fas fa-check" style="font-size: 0.8rem;"></i></div>
+                <div class="candidate-name"><%= c.name %></div>
+                <% if (c.position) { %>
+                  <div class="candidate-position"><%= c.position %></div>
+                <% } %>
+                <% if (c.description) { %>
+                  <div class="candidate-platform"><%= c.description %></div>
+                <% } %>
+                <% if (c.platform) { %>
+                  <div class="candidate-platform" style="margin-top: 0.5rem; font-style: italic;"><strong>Platform:</strong> <%= c.platform %></div>
+                <% } %>
+              </label>
+            <% }); %>
+          </div>
+          <div style="margin-top: 1.5rem; text-align: center;">
+            <button type="submit" id="vote-submit" class="btn btn-success btn-lg" disabled>
+              <i class="fas fa-check-circle"></i> Submit My Vote
+            </button>
+          </div>
+        </form>
+      </div>
+
+    <% } else if (hasVoted) { %>
+      <!-- ALREADY VOTED -->
+      <div class="card" style="margin-bottom: 2rem;">
+        <div class="card-header">
+          <h3><i class="fas fa-check-circle" style="color: #34d399;"></i> Vote Confirmed</h3>
+          <span class="badge badge-success">VOTED</span>
+        </div>
+        <div class="receipt-box">
+          <i class="fas fa-receipt" style="font-size: 2rem; color: var(--text-dim);"></i>
+          <p style="color: var(--text-muted); margin-top: 0.5rem;">Your vote has been securely recorded and encrypted.</p>
+          <p style="font-size: 0.8rem; color: var(--text-dim);">Use your receipt code on the <a href="/dashboard/verify">Verify Vote</a> page to confirm your vote.</p>
+        </div>
+      </div>
+    <% } else { %>
+      <!-- NOT ACTIVE -->
+      <div class="card" style="margin-bottom: 2rem;">
+        <div class="card-header">
+          <h3><i class="fas fa-clock" style="color: var(--warning);"></i> Election Not Active</h3>
+        </div>
+        <p style="color: var(--text-muted);">
+          This election is currently <strong><%= election.status %></strong>.
+          <% if (election.status === 'draft') { %>
+            It hasn't started yet. Start date: <%= new Date(election.start_date).toLocaleString() %>
+          <% } %>
+        </p>
+      </div>
+    <% } %>
+
+    <% if (results) { %>
+      <!-- RESULTS -->
+      <div class="card">
+        <div class="card-header">
+          <h3><i class="fas fa-chart-bar"></i> Election Results</h3>
+          <span class="badge badge-info">FINAL</span>
+        </div>
+        <% const maxVotes = Math.max(...results.map(r => r.vote_count), 1); %>
+        <% results.forEach((r, i) => { %>
+          <div class="result-bar-container">
+            <div class="result-bar-header">
+              <span class="name">
+                <% if (i === 0 && r.vote_count > 0) { %><i class="fas fa-trophy" style="color: #fbbf24;"></i> <% } %>
+                <%= r.name %>
+                <% if (r.position) { %><span style="color: var(--text-dim); font-weight: 400;"> — <%= r.position %></span><% } %>
+              </span>
+              <span class="count"><%= r.vote_count %> vote<%= r.vote_count !== 1 ? 's' : '' %> (<%= voteCount > 0 ? ((r.vote_count / voteCount) * 100).toFixed(1) : 0 %>%)</span>
+            </div>
+            <div class="result-bar">
+              <div class="result-bar-fill <%= i === 0 ? 'winner' : '' %>" style="width: <%= (r.vote_count / maxVotes) * 100 %>%"></div>
+            </div>
+          </div>
+        <% }); %>
+      </div>
+    <% } %>
+  </div>
+</div>
+<%- include('../partials/footer') %>

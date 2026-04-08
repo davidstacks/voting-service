@@ -1,0 +1,32 @@
+<div class="sidebar">
+  <div class="sidebar-brand">
+    <h1><i class="fas fa-shield-halved"></i> SecureVote</h1>
+    <small>Military-Grade Voting Platform</small>
+  </div>
+  <nav class="sidebar-nav">
+    <% if (typeof user !== 'undefined' && user && user.role === 'admin') { %>
+      <a href="/admin"><i class="fas fa-chart-line"></i> Dashboard</a>
+      <a href="/admin/elections/new"><i class="fas fa-plus-circle"></i> Create Election</a>
+      <a href="/admin/voters"><i class="fas fa-users"></i> Manage Voters</a>
+      <a href="/admin/audit"><i class="fas fa-clipboard-list"></i> Audit Log</a>
+      <a href="/admin/spam-report"><i class="fas fa-shield-halved"></i> Spam Report</a>
+    <% } else { %>
+      <a href="/dashboard"><i class="fas fa-home"></i> Dashboard</a>
+      <a href="/dashboard/verify"><i class="fas fa-receipt"></i> Verify Vote</a>
+    <% } %>
+  </nav>
+  <div class="sidebar-footer">
+    <% if (typeof user !== 'undefined' && user) { %>
+      <div class="user-info">
+        <div class="user-avatar"><%= user.full_name.charAt(0).toUpperCase() %></div>
+        <div class="user-details">
+          <div class="user-name"><%= user.full_name %></div>
+          <div class="user-role"><%= user.role %></div>
+        </div>
+      </div>
+      <form action="/auth/logout" method="POST">
+        <button type="submit" class="btn btn-outline btn-sm" style="width:100%"><i class="fas fa-sign-out-alt"></i> Log Out</button>
+      </form>
+    <% } %>
+  </div>
+</div>
