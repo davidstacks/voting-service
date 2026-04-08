@@ -1,0 +1,166 @@
+<%- include('../partials/head') %>
+<div class="app-container">
+  <%- include('../partials/sidebar') %>
+  <div class="main-content">
+    <%- include('../partials/alerts') %>
+
+    <div class="page-header">
+      <div>
+        <h2><%= election.title %></h2>
+        <p><%= election.description %></p>
+      </div>
+      <div class="btn-group">
+        <a href="/admin/elections/<%= election.id %>/edit" class="btn btn-outline"><i class="fas fa-edit"></i> Edit</a>
+        <a href="/admin" class="btn btn-outline"><i class="fas fa-arrow-left"></i> Back</a>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-grid">
+      <div class="stat-card blue">
+        <div class="stat-icon">🗳️</div>
+        <div class="stat-value"><%= voteCount %></div>
+        <div class="stat-label">Total Votes</div>
+      </div>
+      <div class="stat-card green">
+        <div class="stat-icon">📊</div>
+        <div class="stat-value"><%= turnout %>%</div>
+        <div class="stat-label">Voter Turnout</div>
+      </div>
+      <div class="stat-card purple">
+        <div class="stat-icon">👥</div>
+        <div class="stat-value"><%= candidates.length %></div>
+        <div class="stat-label">Candidates</div>
+      </div>
+    </div>
+
+    <!-- Status Management -->
+    <div class="card" style="margin-bottom: 1.5rem;">
+      <div class="card-header">
+        <h3><i class="fas fa-cog"></i> Election Control</h3>
+        <% if (election.status === 'active') { %>
+          <span class="badge badge-success">ACTIVE</span>
+        <% } else if (election.status === 'closed') { %>
+          <span class="badge badge-danger">CLOSED</span>
+        <% } else if (election.status === 'draft') { %>
+          <span class="badge badge-warning">DRAFT</span>
+        <% } else if (election.status === 'paused') { %>
+          <span class="badge badge-info">PAUSED</span>
+        <% } else { %>
+          <span class="badge badge-gray"><%= election.status.toUpperCase() %></span>
+        <% } %>
+      </div>
+      <div class="btn-group" style="flex-wrap: wrap;">
+        <% if (election.status !== 'active') { %>
+          <form method="POST" action="/admin/elections/<%= election.id %>/status" style="display:inline;">
+            <input type="hidden" name="status" value="active">
+            <button class="btn btn-success btn-sm"><i class="fas fa-play"></i> Activate</button>
+          </form>
+        <% } %>
+        <% if (election.status === 'active') { %>
+          <form method="POST" action="/admin/elections/<%= election.id %>/status" style="display:inline;">
+            <input type="hidden" name="status" value="paused">
+            <button class="btn btn-warning btn-sm"><i class="fas fa-pause"></i> Pause</button>
+          </form>
+        <% } %>
+        <% if (election.status !== 'closed' && election.status !== 'archived') { %>
+          <form method="POST" action="/admin/elections/<%= election.id %>/status" style="display:inline;">
+            <input type="hidden" name="status" value="closed">
+            <button class="btn btn-danger btn-sm" data-confirm="Are you sure you want to close this election? No more votes will be accepted."><i class="fas fa-stop"></i> Close</button>
+          </form>
+        <% } %>
+        <% if (election.status === 'closed') { %>
+          <form method="POST" action="/admin/elections/<%= election.id %>/status" style="display:inline;">
+            <input type="hidden" name="status" value="archived">
+            <button class="btn btn-outline btn-sm"><i class="fas fa-archive"></i> Archive</button>
+          </form>
+        <% } %>
+        <form method="POST" action="/admin/elections/<%= election.id %>/delete" style="display:inline;">
+          <button class="btn btn-danger btn-sm" data-confirm="DELETE this election permanently? This cannot be undone!"><i class="fas fa-trash"></i> Delete</button>
+        </form>
+      </div>
+      <div style="margin-top: 1rem; font-size: 0.82rem; color: var(--text-dim);">
+        <strong>Period:</strong> <%= new Date(election.start_date).toLocaleString() %> — <%= new Date(election.end_date).toLocaleString() %> &nbsp;|&nbsp;
+        <strong>Anonymous:</strong> <%= election.is_anonymous ? 'Yes' : 'No' %> &nbsp;|&nbsp;
+        <strong>Created:</strong> <%= new Date(election.created_at).toLocaleString() %>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+      <!-- Candidates -->
+      <div class="card">
+        <div class="card-header">
+          <h3><i class="fas fa-user-tie"></i> Candidates</h3>
+        </div>
+
+        <!-- Add candidate form -->
+        <form method="POST" action="/admin/elections/<%= election.id %>/candidates" style="margin-bottom: 1.5rem;">
+          <div class="form-group">
+            <label>Add New Candidate</label>
+            <input type="text" name="name" class="form-control" placeholder="Candidate name" required style="margin-bottom: 0.5rem;">
+            <input type="text" name="position" class="form-control" placeholder="Position (optional)" style="margin-bottom: 0.5rem;">
+            <input type="text" name="description" class="form-control" placeholder="Short description (optional)" style="margin-bottom: 0.5rem;">
+            <textarea name="platform" class="form-control" placeholder="Platform / manifesto (optional)" style="min-height: 60px;"></textarea>
+          </div>
+          <button type="submit" class="btn btn-success btn-sm"><i class="fas fa-plus"></i> Add Candidate</button>
+        </form>
+
+        <% if (candidates.length === 0) { %>
+          <p style="color: var(--text-muted); font-size: 0.85rem;">No candidates added yet. Add candidates above.</p>
+        <% } else { %>
+          <% candidates.forEach(c => { %>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 0; border-top: 1px solid var(--border);">
+              <div>
+                <strong><%= c.name %></strong>
+                <% if (c.position) { %><span style="color: var(--primary-light); font-size: 0.8rem;"> — <%= c.position %></span><% } %>
+                <% if (c.description) { %><p style="color: var(--text-dim); font-size: 0.8rem; margin-top: 2px;"><%= c.description %></p><% } %>
+              </div>
+              <form method="POST" action="/admin/elections/<%= election.id %>/candidates/<%= c.id %>/delete">
+                <button class="btn btn-danger btn-sm" data-confirm="Remove this candidate?"><i class="fas fa-trash"></i></button>
+              </form>
+            </div>
+          <% }); %>
+        <% } %>
+      </div>
+
+      <!-- Results -->
+      <div class="card">
+        <div class="card-header">
+          <h3><i class="fas fa-chart-bar"></i> Live Results</h3>
+        </div>
+        <% if (results.length === 0) { %>
+          <p style="color: var(--text-muted); font-size: 0.85rem;">No votes cast yet.</p>
+        <% } else { %>
+          <% const maxVotes = Math.max(...results.map(r => r.vote_count), 1); %>
+          <% results.forEach((r, i) => { %>
+            <div class="result-bar-container">
+              <div class="result-bar-header">
+                <span class="name">
+                  <% if (i === 0 && r.vote_count > 0) { %><i class="fas fa-trophy" style="color: #fbbf24;"></i> <% } %>
+                  <%= r.name %>
+                </span>
+                <span class="count"><%= r.vote_count %> vote<%= r.vote_count !== 1 ? 's' : '' %> (<%= voteCount > 0 ? ((r.vote_count / voteCount) * 100).toFixed(1) : 0 %>%)</span>
+              </div>
+              <div class="result-bar">
+                <div class="result-bar-fill <%= i === 0 ? 'winner' : '' %>" style="width: <%= (r.vote_count / maxVotes) * 100 %>%"></div>
+              </div>
+            </div>
+          <% }); %>
+        <% } %>
+
+        <% if (timeline.length > 0) { %>
+          <div style="margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1rem;">
+            <h4 style="font-size: 0.9rem; margin-bottom: 0.75rem;">Voting Timeline</h4>
+            <% timeline.forEach(t => { %>
+              <div style="display: flex; justify-content: space-between; font-size: 0.8rem; padding: 0.3rem 0; color: var(--text-muted);">
+                <span><%= t.hour %></span>
+                <span><strong><%= t.count %></strong> votes</span>
+              </div>
+            <% }); %>
+          </div>
+        <% } %>
+      </div>
+    </div>
+  </div>
+</div>
+<%- include('../partials/footer') %>
