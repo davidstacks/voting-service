@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= title %> — GVote</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    :root {
+      --primary: #6366f1; --primary-light: #818cf8; --accent: #10b981;
+      --bg: #0c0f1a; --bg-card: #161b2e; --bg-input: #111627;
+      --text: #e8eaf0; --text-muted: #8b92a8; --border: #252d45;
+      --danger: #ef4444; --warning: #f59e0b;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); padding: 1rem; }
+
+    .embed-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+    .embed-title { font-size: 1.1rem; font-weight: 700; }
+    .embed-badge { font-size: 0.65rem; background: rgba(99,102,241,0.15); color: var(--primary-light); padding: 0.2rem 0.5rem; border-radius: 50px; font-weight: 600; text-decoration: none; }
+
+    .options-list { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; }
+    .option-card { display: flex; align-items: center; gap: 0.6rem; padding: 0.8rem 1rem; background: var(--bg-input); border: 2px solid var(--border); border-radius: 8px; cursor: pointer; transition: all 0.2s; }
+    .option-card:hover { border-color: var(--primary); }
+    .option-card input { display: none; }
+    .option-check { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 0.6rem; color: transparent; flex-shrink: 0; }
+    .option-card input:checked + .option-check { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .option-card:has(input:checked) { border-color: var(--primary); background: rgba(99,102,241,0.08); }
+    .option-label { font-size: 0.88rem; font-weight: 500; color: var(--text-muted); }
+
+    .btn { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.5rem 1rem; border-radius: 8px; font-weight: 600; font-size: 0.82rem; border: none; cursor: pointer; font-family: inherit; }
+    .btn-primary { background: var(--primary); color: #fff; width: 100%; justify-content: center; }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .result-row { margin-bottom: 0.6rem; }
+    .result-label { display: flex; justify-content: space-between; margin-bottom: 0.2rem; font-size: 0.82rem; }
+    .result-name { font-weight: 600; }
+    .result-pct { color: var(--primary-light); font-weight: 700; }
+    .result-bar-bg { height: 8px; background: var(--bg-input); border-radius: 100px; overflow: hidden; }
+    .result-bar { height: 100%; background: linear-gradient(90deg, var(--primary), var(--primary-light)); border-radius: 100px; min-width: 2px; }
+    .result-votes { font-size: 0.7rem; color: var(--text-muted); margin-top: 0.1rem; }
+
+    .voted-msg { text-align: center; padding: 0.6rem; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); border-radius: 8px; color: #34d399; font-weight: 600; font-size: 0.82rem; margin-bottom: 0.8rem; }
+    .status-badge { font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: 50px; font-weight: 700; }
+    .closed { background: rgba(239,68,68,0.15); color: #f87171; }
+    .vote-count { font-size: 0.78rem; color: var(--text-muted); margin-bottom: 1rem; }
+  </style>
+</head>
+<body>
+  <div class="embed-header">
+    <span class="embed-title"><%= poll.title %></span>
+    <a href="/v/<%= poll.slug %>" target="_blank" class="embed-badge"><i class="fas fa-external-link-alt"></i> GVote</a>
+  </div>
+
+  <div class="vote-count">
+    <i class="fas fa-users"></i> <%= totalVotes %> vote<%= totalVotes !== 1 ? 's' : '' %>
+    <% if (poll.is_closed || isExpired) { %>
+      <span class="status-badge closed"><%= poll.is_closed ? 'Closed' : 'Ended' %></span>
+    <% } %>
+  </div>
+
+  <% if (voted) { %>
+    <div class="voted-msg"><i class="fas fa-check-circle"></i> You have voted!</div>
+  <% } %>
+
+  <% if (canVote) { %>
+    <form id="vote-form" method="POST" action="/v/<%= poll.slug %>/vote" target="_top">
+      <input type="hidden" name="deviceFingerprint" id="deviceFingerprint" value="">
+      <div class="options-list">
+        <% options.forEach(o => { %>
+          <label class="option-card">
+            <input type="<%= poll.allow_multiple ? 'checkbox' : 'radio' %>" name="optionId" value="<%= o.id %>" required>
+            <span class="option-check"><i class="fas fa-check"></i></span>
+            <span class="option-label"><%= o.label %></span>
+          </label>
+        <% }); %>
+      </div>
+      <button type="submit" id="vote-submit" class="btn btn-primary" disabled>
+        <i class="fas fa-paper-plane"></i> Vote
+      </button>
+    </form>
+  <% } %>
+
+  <% if (showResults && results) { %>
+    <div class="results-list">
+      <% results.forEach(r => { %>
+        <% const pct = totalVotes > 0 ? ((r.vote_count / totalVotes) * 100).toFixed(1) : 0; %>
+        <div class="result-row">
+          <div class="result-label">
+            <span class="result-name"><%= r.label %></span>
+            <span class="result-pct"><%= pct %>%</span>
+          </div>
+          <div class="result-bar-bg"><div class="result-bar" style="width: <%= pct %>%"></div></div>
+          <div class="result-votes"><%= r.vote_count %> vote<%= r.vote_count !== 1 ? 's' : '' %></div>
+        </div>
+      <% }); %>
+    </div>
+  <% } %>
+
+  <script>
+    // Fingerprint
+    (async () => {
+      const parts = [`s:${screen.width}x${screen.height}`, `tz:${Intl.DateTimeFormat().resolvedOptions().timeZone}`, `p:${navigator.platform}`, `l:${navigator.language}`];
+      const raw = parts.join('|');
+      const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(raw));
+      const fp = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+      const el = document.getElementById('deviceFingerprint');
+      if (el) el.value = fp;
+    })();
+
+    // Enable vote button on selection
+    const form = document.getElementById('vote-form');
+    if (form) {
+      const btn = document.getElementById('vote-submit');
+      form.addEventListener('change', () => { btn.disabled = form.querySelectorAll('input[name="optionId"]:checked').length === 0; });
+      let submitted = false;
+      form.addEventListener('submit', (e) => { if (submitted) { e.preventDefault(); return; } submitted = true; btn.disabled = true; });
+    }
+  </script>
+</body>
+</html>

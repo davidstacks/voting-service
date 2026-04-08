@@ -1,545 +1,400 @@
 const Database = require('better-sqlite3');
-const path = require('path');
-const bcrypt = require('bcrypt');
 const crypto = require('crypto');
-
-const DB_PATH = path.join(__dirname, '..', 'voting.db');
-const SALT_ROUNDS = 12;
+const path = require('path');
 
 let db;
 
 function getDb() {
   if (!db) {
-    db = new Database(DB_PATH);
+    db = new Database(path.join(__dirname, '..', 'voting.db'));
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
   }
   return db;
 }
 
+const CATEGORIES = [
+  { id: 'general', label: 'General', icon: 'fa-globe' },
+  { id: 'school', label: 'School', icon: 'fa-graduation-cap' },
+  { id: 'work', label: 'Work', icon: 'fa-briefcase' },
+  { id: 'fun', label: 'Fun & Games', icon: 'fa-gamepad' },
+  { id: 'sports', label: 'Sports', icon: 'fa-futbol' },
+  { id: 'food', label: 'Food & Drink', icon: 'fa-utensils' },
+  { id: 'tech', label: 'Technology', icon: 'fa-laptop-code' },
+  { id: 'events', label: 'Events', icon: 'fa-calendar-days' },
+  { id: 'feedback', label: 'Feedback', icon: 'fa-comments' },
+  { id: 'other', label: 'Other', icon: 'fa-ellipsis' },
+];
+
+const POLL_TYPES = [
+  { id: 'choice', label: 'Multiple Choice', icon: 'fa-list-check', desc: 'Pick one or more options' },
+  { id: 'yesno', label: 'Yes / No', icon: 'fa-thumbs-up', desc: 'Simple yes or no question' },
+  { id: 'rating', label: 'Rating (1-5)', icon: 'fa-star', desc: 'Rate with 1 to 5 stars' },
+];
+
 function initialize() {
-  const db = getDb();
+  const d = getDb();
 
-  db.exec(`
-    -- Users table
-    CREATE TABLE IF NOT EXISTS users (
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS polls (
       id TEXT PRIMARY KEY,
-      student_id TEXT UNIQUE NOT NULL,
-      email TEXT UNIQUE NOT NULL,
-      username TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      full_name TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'voter' CHECK(role IN ('voter', 'admin')),
-      is_verified INTEGER NOT NULL DEFAULT 0,
-      is_locked INTEGER NOT NULL DEFAULT 0,
-      failed_login_attempts INTEGER NOT NULL DEFAULT 0,
-      last_login_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    -- Elections table
-    CREATE TABLE IF NOT EXISTS elections (
-      id TEXT PRIMARY KEY,
+      slug TEXT UNIQUE NOT NULL,
       title TEXT NOT NULL,
-      description TEXT NOT NULL,
-      start_date TEXT NOT NULL,
-      end_date TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'active', 'paused', 'closed', 'archived')),
-      created_by TEXT NOT NULL,
-      max_votes_per_user INTEGER NOT NULL DEFAULT 1,
-      is_anonymous INTEGER NOT NULL DEFAULT 1,
-      requires_verification INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (created_by) REFERENCES users(id)
-    );
-
-    -- Candidates table
-    CREATE TABLE IF NOT EXISTS candidates (
-      id TEXT PRIMARY KEY,
-      election_id TEXT NOT NULL,
-      name TEXT NOT NULL,
       description TEXT,
-      platform TEXT,
-      position TEXT,
-      display_order INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (election_id) REFERENCES elections(id) ON DELETE CASCADE
+      admin_password_hash TEXT,
+      category TEXT DEFAULT 'general',
+      poll_type TEXT DEFAULT 'choice',
+      allow_multiple INTEGER DEFAULT 0,
+      show_results_before_end INTEGER DEFAULT 1,
+      max_votes_per_person INTEGER DEFAULT 1,
+      end_date TEXT,
+      is_closed INTEGER DEFAULT 0,
+      is_public INTEGER DEFAULT 1,
+      require_name INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      total_votes INTEGER DEFAULT 0,
+      session_owner TEXT
     );
 
-    -- Votes table (encrypted ballot)
+    CREATE TABLE IF NOT EXISTS options (
+      id TEXT PRIMARY KEY,
+      poll_id TEXT NOT NULL,
+      label TEXT NOT NULL,
+      sort_order INTEGER DEFAULT 0,
+      vote_count INTEGER DEFAULT 0,
+      FOREIGN KEY (poll_id) REFERENCES polls(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS votes (
       id TEXT PRIMARY KEY,
-      election_id TEXT NOT NULL,
-      user_id TEXT NOT NULL,
-      candidate_id TEXT NOT NULL,
-      vote_hash TEXT NOT NULL,
-      receipt_code TEXT UNIQUE NOT NULL,
+      poll_id TEXT NOT NULL,
+      option_id TEXT NOT NULL,
+      voter_name TEXT,
       device_fingerprint TEXT,
+      session_id TEXT,
       user_agent TEXT,
-      cast_at TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (election_id) REFERENCES elections(id),
-      FOREIGN KEY (user_id) REFERENCES users(id),
-      FOREIGN KEY (candidate_id) REFERENCES candidates(id),
-      UNIQUE(election_id, user_id)
+      cast_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (poll_id) REFERENCES polls(id) ON DELETE CASCADE,
+      FOREIGN KEY (option_id) REFERENCES options(id) ON DELETE CASCADE
     );
 
-    -- Audit log table
-    CREATE TABLE IF NOT EXISTS audit_log (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id TEXT,
-      action TEXT NOT NULL,
-      resource_type TEXT,
-      resource_id TEXT,
-      details TEXT,
-      ip_address TEXT,
-      user_agent TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (user_id) REFERENCES users(id)
-    );
-
-    -- Sessions tracking for security
-    CREATE TABLE IF NOT EXISTS active_sessions (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
-      ip_address TEXT,
-      user_agent TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      expires_at TEXT NOT NULL,
-      FOREIGN KEY (user_id) REFERENCES users(id)
-    );
-
-    -- Vote attempt tracking (anti-spam / cooldown)
-    CREATE TABLE IF NOT EXISTS vote_attempts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id TEXT NOT NULL,
-      election_id TEXT NOT NULL,
-      device_fingerprint TEXT,
-      attempted_at TEXT NOT NULL DEFAULT (datetime('now')),
-      was_blocked INTEGER NOT NULL DEFAULT 0,
-      block_reason TEXT,
-      FOREIGN KEY (user_id) REFERENCES users(id),
-      FOREIGN KEY (election_id) REFERENCES elections(id)
-    );
-
-    -- Device fingerprint tracking (links devices to users)
-    CREATE TABLE IF NOT EXISTS device_fingerprints (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id TEXT NOT NULL,
-      fingerprint TEXT NOT NULL,
-      first_seen TEXT NOT NULL DEFAULT (datetime('now')),
-      last_seen TEXT NOT NULL DEFAULT (datetime('now')),
-      times_seen INTEGER NOT NULL DEFAULT 1,
-      FOREIGN KEY (user_id) REFERENCES users(id),
-      UNIQUE(user_id, fingerprint)
-    );
-
-    -- Create indexes for performance
-    CREATE INDEX IF NOT EXISTS idx_votes_election ON votes(election_id);
-    CREATE INDEX IF NOT EXISTS idx_votes_user ON votes(user_id);
-    CREATE INDEX IF NOT EXISTS idx_votes_election_user ON votes(election_id, user_id);
-    CREATE INDEX IF NOT EXISTS idx_votes_fingerprint ON votes(device_fingerprint);
-    CREATE INDEX IF NOT EXISTS idx_candidates_election ON candidates(election_id);
-    CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user_id);
-    CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
-    CREATE INDEX IF NOT EXISTS idx_elections_status ON elections(status);
-    CREATE INDEX IF NOT EXISTS idx_vote_attempts_user ON vote_attempts(user_id, election_id);
-    CREATE INDEX IF NOT EXISTS idx_vote_attempts_fp ON vote_attempts(device_fingerprint);
-    CREATE INDEX IF NOT EXISTS idx_device_fp ON device_fingerprints(fingerprint);
+    CREATE INDEX IF NOT EXISTS idx_votes_poll ON votes(poll_id);
+    CREATE INDEX IF NOT EXISTS idx_votes_fp ON votes(poll_id, device_fingerprint);
+    CREATE INDEX IF NOT EXISTS idx_votes_session ON votes(poll_id, session_id);
+    CREATE INDEX IF NOT EXISTS idx_polls_slug ON polls(slug);
+    CREATE INDEX IF NOT EXISTS idx_options_poll ON options(poll_id);
+    CREATE INDEX IF NOT EXISTS idx_polls_category ON polls(category);
+    CREATE INDEX IF NOT EXISTS idx_polls_type ON polls(poll_type);
+    CREATE INDEX IF NOT EXISTS idx_polls_public ON polls(is_public, is_closed);
+    CREATE INDEX IF NOT EXISTS idx_polls_session_owner ON polls(session_owner);
   `);
 
-  // Create default admin if none exists
-  const adminExists = db.prepare('SELECT COUNT(*) as count FROM users WHERE role = ?').get('admin');
-  if (adminExists.count === 0) {
-    const adminId = crypto.randomUUID();
-    const passwordHash = bcrypt.hashSync('Admin@2024!Secure', SALT_ROUNDS);
-    db.prepare(`
-      INSERT INTO users (id, student_id, email, username, password_hash, full_name, role, is_verified)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(adminId, 'ADMIN001', 'admin@school.edu', 'admin', passwordHash, 'System Administrator', 'admin', 1);
-    console.log('Default admin created - Username: admin / Password: Admin@2024!Secure');
-  }
+  // Add new columns if they don't exist (migration for existing DBs)
+  const cols = d.prepare("PRAGMA table_info(polls)").all().map(c => c.name);
+  if (!cols.includes('category')) d.exec("ALTER TABLE polls ADD COLUMN category TEXT DEFAULT 'general'");
+  if (!cols.includes('poll_type')) d.exec("ALTER TABLE polls ADD COLUMN poll_type TEXT DEFAULT 'choice'");
+  if (!cols.includes('is_public')) d.exec("ALTER TABLE polls ADD COLUMN is_public INTEGER DEFAULT 1");
+  if (!cols.includes('session_owner')) d.exec("ALTER TABLE polls ADD COLUMN session_owner TEXT");
+
+  console.log('Database initialized');
 }
 
-// --- User functions ---
-function createUser({ studentId, email, username, password, fullName }) {
-  const db = getDb();
+// --- Slug generation ---
+function generateSlug(length = 8) {
+  const chars = 'abcdefghijkmnpqrstuvwxyz23456789';
+  let slug = '';
+  const bytes = crypto.randomBytes(length);
+  for (let i = 0; i < length; i++) {
+    slug += chars[bytes[i] % chars.length];
+  }
+  return slug;
+}
+
+function generateUniqueSlug() {
+  const d = getDb();
+  let slug, attempts = 0;
+  do {
+    slug = generateSlug(attempts < 5 ? 8 : 12);
+    attempts++;
+  } while (d.prepare('SELECT id FROM polls WHERE slug = ?').get(slug));
+  return slug;
+}
+
+// --- Poll CRUD ---
+function createPoll({ title, description, options, adminPassword, allowMultiple, showResults, maxVotes, endDate, requireName, category, pollType, isPublic, sessionOwner }) {
+  const d = getDb();
   const id = crypto.randomUUID();
-  const passwordHash = bcrypt.hashSync(password, SALT_ROUNDS);
-  db.prepare(`
-    INSERT INTO users (id, student_id, email, username, password_hash, full_name, is_verified)
-    VALUES (?, ?, ?, ?, ?, ?, 1)
-  `).run(id, studentId, email, username, passwordHash, fullName);
-  return id;
-}
+  const slug = generateUniqueSlug();
 
-function getUserByUsername(username) {
-  return getDb().prepare('SELECT * FROM users WHERE username = ?').get(username);
-}
-
-function getUserById(id) {
-  return getDb().prepare('SELECT * FROM users WHERE id = ?').get(id);
-}
-
-function getAllVoters() {
-  return getDb().prepare('SELECT id, student_id, email, username, full_name, is_verified, is_locked, last_login_at, created_at FROM users WHERE role = ?').all('voter');
-}
-
-function verifyPassword(plaintext, hash) {
-  return bcrypt.compareSync(plaintext, hash);
-}
-
-function updateLoginAttempts(userId, attempts) {
-  const isLocked = attempts >= 5 ? 1 : 0;
-  getDb().prepare("UPDATE users SET failed_login_attempts = ?, is_locked = ?, updated_at = datetime('now') WHERE id = ?")
-    .run(attempts, isLocked, userId);
-}
-
-function resetLoginAttempts(userId) {
-  getDb().prepare("UPDATE users SET failed_login_attempts = 0, is_locked = 0, last_login_at = datetime('now'), updated_at = datetime('now') WHERE id = ?")
-    .run(userId);
-}
-
-function toggleUserLock(userId) {
-  const user = getUserById(userId);
-  const newLocked = user.is_locked ? 0 : 1;
-  getDb().prepare("UPDATE users SET is_locked = ?, failed_login_attempts = 0, updated_at = datetime('now') WHERE id = ?")
-    .run(newLocked, userId);
-}
-
-function toggleUserVerification(userId) {
-  const user = getUserById(userId);
-  const newVerified = user.is_verified ? 0 : 1;
-  getDb().prepare("UPDATE users SET is_verified = ?, updated_at = datetime('now') WHERE id = ?")
-    .run(newVerified, userId);
-}
-
-// --- Election functions ---
-function createElection({ title, description, startDate, endDate, createdBy, maxVotes, isAnonymous }) {
-  const db = getDb();
-  const id = crypto.randomUUID();
-  db.prepare(`
-    INSERT INTO elections (id, title, description, start_date, end_date, created_by, max_votes_per_user, is_anonymous)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, title, description, startDate, endDate, createdBy, maxVotes || 1, isAnonymous ? 1 : 0);
-  return id;
-}
-
-function getElectionById(id) {
-  return getDb().prepare('SELECT * FROM elections WHERE id = ?').get(id);
-}
-
-function getAllElections() {
-  return getDb().prepare('SELECT * FROM elections ORDER BY created_at DESC').all();
-}
-
-function getActiveElections() {
-  return getDb().prepare(`
-    SELECT * FROM elections 
-    WHERE status = 'active' 
-    AND datetime(start_date) <= datetime('now') 
-    AND datetime(end_date) >= datetime('now')
-    ORDER BY end_date ASC
-  `).all();
-}
-
-function updateElectionStatus(id, status) {
-  getDb().prepare("UPDATE elections SET status = ?, updated_at = datetime('now') WHERE id = ?").run(status, id);
-}
-
-function updateElection(id, { title, description, startDate, endDate, maxVotes, isAnonymous }) {
-  getDb().prepare(`
-    UPDATE elections SET title = ?, description = ?, start_date = ?, end_date = ?, 
-    max_votes_per_user = ?, is_anonymous = ?, updated_at = datetime('now') WHERE id = ?
-  `).run(title, description, startDate, endDate, maxVotes || 1, isAnonymous ? 1 : 0, id);
-}
-
-function deleteElection(id) {
-  getDb().prepare('DELETE FROM elections WHERE id = ?').run(id);
-}
-
-// --- Candidate functions ---
-function addCandidate({ electionId, name, description, platform, position, displayOrder }) {
-  const db = getDb();
-  const id = crypto.randomUUID();
-  db.prepare(`
-    INSERT INTO candidates (id, election_id, name, description, platform, position, display_order)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(id, electionId, name, description || '', platform || '', position || '', displayOrder || 0);
-  return id;
-}
-
-function getCandidatesByElection(electionId) {
-  return getDb().prepare('SELECT * FROM candidates WHERE election_id = ? ORDER BY display_order ASC').all(electionId);
-}
-
-function deleteCandidate(id) {
-  getDb().prepare('DELETE FROM candidates WHERE id = ?').run(id);
-}
-
-// --- Vote functions ---
-function castVote({ electionId, userId, candidateId, deviceFingerprint, userAgent }) {
-  const db = getDb();
-
-  // PROTECTION 1: Database UNIQUE constraint — user already voted
-  const existingVote = db.prepare('SELECT id FROM votes WHERE election_id = ? AND user_id = ?').get(electionId, userId);
-  if (existingVote) {
-    logVoteAttempt({ userId, electionId, deviceFingerprint, blocked: true, reason: 'DUPLICATE_VOTE' });
-    throw new Error('You have already voted in this election. Each person can only vote ONCE.');
+  let adminPasswordHash = null;
+  if (adminPassword && adminPassword.trim()) {
+    adminPasswordHash = crypto.createHash('sha256').update(adminPassword.trim()).digest('hex');
   }
 
-  // PROTECTION 2: Verify candidate belongs to this election
-  const validCandidate = db.prepare('SELECT id FROM candidates WHERE id = ? AND election_id = ?').get(candidateId, electionId);
-  if (!validCandidate) {
-    logVoteAttempt({ userId, electionId, deviceFingerprint, blocked: true, reason: 'INVALID_CANDIDATE' });
-    throw new Error('Invalid candidate selection.');
+  // For yes/no type, override options
+  if (pollType === 'yesno') {
+    options = ['Yes', 'No'];
+  }
+  // For rating type, override options
+  if (pollType === 'rating') {
+    options = ['1 Star', '2 Stars', '3 Stars', '4 Stars', '5 Stars'];
   }
 
-  // PROTECTION 3: Cooldown — block rapid-fire vote attempts (10-second window)
-  const recentAttempt = db.prepare(`
-    SELECT COUNT(*) as cnt FROM vote_attempts 
-    WHERE user_id = ? AND datetime(attempted_at) > datetime('now', '-10 seconds')
-  `).get(userId);
-  if (recentAttempt.cnt >= 3) {
-    logVoteAttempt({ userId, electionId, deviceFingerprint, blocked: true, reason: 'COOLDOWN_SPAM' });
-    throw new Error('Too many vote attempts. Please wait a few seconds and try again.');
-  }
+  const insertPoll = d.transaction(() => {
+    d.prepare(`
+      INSERT INTO polls (id, slug, title, description, admin_password_hash, allow_multiple, show_results_before_end, max_votes_per_person, end_date, require_name, category, poll_type, is_public, session_owner)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, slug, title, description || null, adminPasswordHash, allowMultiple ? 1 : 0, showResults !== false ? 1 : 0, maxVotes || 1, endDate || null, requireName ? 1 : 0, category || 'general', pollType || 'choice', isPublic !== false ? 1 : 0, sessionOwner || null);
 
-  // PROTECTION 4: Device fingerprint — same device already voted in this election under DIFFERENT account (account sharing / multi-account abuse)
-  if (deviceFingerprint) {
-    const fpVote = db.prepare(`
-      SELECT v.id, u.username FROM votes v
-      JOIN users u ON u.id = v.user_id
-      WHERE v.election_id = ? AND v.device_fingerprint = ? AND v.user_id != ?
-    `).get(electionId, deviceFingerprint, userId);
-    if (fpVote) {
-      logVoteAttempt({ userId, electionId, deviceFingerprint, blocked: true, reason: 'DEVICE_ALREADY_VOTED' });
-      throw new Error('This device has already been used to vote in this election. One device per voter.');
-    }
-  }
+    const ins = d.prepare('INSERT INTO options (id, poll_id, label, sort_order) VALUES (?, ?, ?, ?)');
+    options.forEach((label, i) => {
+      ins.run(crypto.randomUUID(), id, label.trim(), i);
+    });
 
-  // PROTECTION 5: Verify election is still active right at vote time
-  const election = db.prepare("SELECT status, start_date, end_date FROM elections WHERE id = ? AND status = 'active'").get(electionId);
-  if (!election) {
-    logVoteAttempt({ userId, electionId, deviceFingerprint, blocked: true, reason: 'ELECTION_NOT_ACTIVE' });
-    throw new Error('This election is not accepting votes.');
-  }
-
-  // Log the successful attempt
-  logVoteAttempt({ userId, electionId, deviceFingerprint, blocked: false, reason: null });
-
-  // Track device fingerprint for this user
-  if (deviceFingerprint) {
-    trackDeviceFingerprint(userId, deviceFingerprint);
-  }
-
-  // Cast the vote inside a transaction for atomicity
-  const id = crypto.randomUUID();
-  const receiptCode = crypto.randomBytes(16).toString('hex').toUpperCase();
-  const voteData = `${electionId}:${userId}:${candidateId}:${Date.now()}:${crypto.randomBytes(8).toString('hex')}`;
-  const voteHash = crypto.createHash('sha256').update(voteData).digest('hex');
-
-  const insertVote = db.transaction(() => {
-    // Double-check inside transaction (race condition protection)
-    const doubleCheck = db.prepare('SELECT id FROM votes WHERE election_id = ? AND user_id = ?').get(electionId, userId);
-    if (doubleCheck) {
-      throw new Error('You have already voted in this election. Each person can only vote ONCE.');
-    }
-
-    db.prepare(`
-      INSERT INTO votes (id, election_id, user_id, candidate_id, vote_hash, receipt_code, device_fingerprint, user_agent)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, electionId, userId, candidateId, voteHash, receiptCode, deviceFingerprint || null, userAgent);
-
-    return { receiptCode, voteHash };
+    return { id, slug };
   });
 
-  return insertVote();
+  return insertPoll();
 }
 
-function trackDeviceFingerprint(userId, fingerprint) {
-  try {
-    const existing = getDb().prepare('SELECT id, times_seen FROM device_fingerprints WHERE user_id = ? AND fingerprint = ?').get(userId, fingerprint);
-    if (existing) {
-      getDb().prepare("UPDATE device_fingerprints SET last_seen = datetime('now'), times_seen = times_seen + 1 WHERE id = ?").run(existing.id);
-    } else {
-      getDb().prepare('INSERT INTO device_fingerprints (user_id, fingerprint) VALUES (?, ?)').run(userId, fingerprint);
+function duplicatePoll(pollId, sessionOwner) {
+  const d = getDb();
+  const orig = d.prepare('SELECT * FROM polls WHERE id = ?').get(pollId);
+  if (!orig) throw new Error('Poll not found.');
+  const origOptions = d.prepare('SELECT label FROM options WHERE poll_id = ? ORDER BY sort_order ASC').all(pollId);
+  return createPoll({
+    title: `${orig.title} (Copy)`,
+    description: orig.description,
+    options: origOptions.map(o => o.label),
+    adminPassword: null,
+    allowMultiple: !!orig.allow_multiple,
+    showResults: !!orig.show_results_before_end,
+    maxVotes: orig.max_votes_per_person,
+    endDate: null,
+    requireName: !!orig.require_name,
+    category: orig.category,
+    pollType: orig.poll_type,
+    isPublic: !!orig.is_public,
+    sessionOwner,
+  });
+}
+
+function getPollBySlug(slug) {
+  return getDb().prepare('SELECT * FROM polls WHERE slug = ?').get(slug);
+}
+
+function getPollById(id) {
+  return getDb().prepare('SELECT * FROM polls WHERE id = ?').get(id);
+}
+
+function getOptionsByPoll(pollId) {
+  return getDb().prepare('SELECT * FROM options WHERE poll_id = ? ORDER BY sort_order ASC').all(pollId);
+}
+
+function getPollResults(pollId) {
+  return getDb().prepare(`
+    SELECT o.id, o.label, o.vote_count, o.sort_order
+    FROM options o WHERE o.poll_id = ?
+    ORDER BY o.vote_count DESC
+  `).all(pollId);
+}
+
+function closePoll(pollId) {
+  getDb().prepare("UPDATE polls SET is_closed = 1, updated_at = datetime('now') WHERE id = ?").run(pollId);
+}
+
+function reopenPoll(pollId) {
+  getDb().prepare("UPDATE polls SET is_closed = 0, updated_at = datetime('now') WHERE id = ?").run(pollId);
+}
+
+function deletePoll(pollId) {
+  getDb().prepare('DELETE FROM polls WHERE id = ?').run(pollId);
+}
+
+function verifyAdminPassword(poll, password) {
+  if (!poll.admin_password_hash) return true;
+  const hash = crypto.createHash('sha256').update(password.trim()).digest('hex');
+  return hash === poll.admin_password_hash;
+}
+
+// --- Voting ---
+function castVote({ pollId, optionIds, voterName, deviceFingerprint, sessionId, userAgent }) {
+  const d = getDb();
+  const poll = d.prepare('SELECT * FROM polls WHERE id = ?').get(pollId);
+
+  if (!poll) throw new Error('Poll not found.');
+  if (poll.is_closed) throw new Error('This poll has been closed.');
+  if (poll.end_date && new Date(poll.end_date) < new Date()) throw new Error('This poll has ended.');
+
+  // Duplicate check: fingerprint
+  if (deviceFingerprint) {
+    const fpVotes = d.prepare('SELECT COUNT(*) as cnt FROM votes WHERE poll_id = ? AND device_fingerprint = ?').get(pollId, deviceFingerprint);
+    if (fpVotes.cnt >= (poll.max_votes_per_person || 1)) {
+      throw new Error('You have already voted in this poll.');
     }
-  } catch (_) { /* don't let tracking break voting */ }
+  }
+
+  // Duplicate check: session
+  if (sessionId) {
+    const sv = d.prepare('SELECT COUNT(*) as cnt FROM votes WHERE poll_id = ? AND session_id = ?').get(pollId, sessionId);
+    if (sv.cnt >= (poll.max_votes_per_person || 1)) {
+      throw new Error('You have already voted in this poll.');
+    }
+  }
+
+  if (!Array.isArray(optionIds)) optionIds = [optionIds];
+  if (!poll.allow_multiple && optionIds.length > 1) {
+    throw new Error('This poll only allows one selection.');
+  }
+
+  const validOptions = d.prepare('SELECT id FROM options WHERE poll_id = ?').all(pollId).map(o => o.id);
+  for (const oid of optionIds) {
+    if (!validOptions.includes(oid)) throw new Error('Invalid option selected.');
+  }
+
+  const doVote = d.transaction(() => {
+    // Double-check inside transaction
+    if (deviceFingerprint) {
+      const fpCheck = d.prepare('SELECT COUNT(*) as cnt FROM votes WHERE poll_id = ? AND device_fingerprint = ?').get(pollId, deviceFingerprint);
+      if (fpCheck.cnt >= (poll.max_votes_per_person || 1)) {
+        throw new Error('You have already voted in this poll.');
+      }
+    }
+
+    const insVote = d.prepare('INSERT INTO votes (id, poll_id, option_id, voter_name, device_fingerprint, session_id, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const updCount = d.prepare('UPDATE options SET vote_count = vote_count + 1 WHERE id = ?');
+
+    for (const oid of optionIds) {
+      insVote.run(crypto.randomUUID(), pollId, oid, voterName || null, deviceFingerprint || null, sessionId || null, userAgent || null);
+      updCount.run(oid);
+    }
+
+    d.prepare("UPDATE polls SET total_votes = total_votes + ?, updated_at = datetime('now') WHERE id = ?").run(optionIds.length, pollId);
+  });
+
+  doVote();
+  return { success: true };
 }
 
-function getDevicesByUser(userId) {
-  return getDb().prepare('SELECT * FROM device_fingerprints WHERE user_id = ? ORDER BY last_seen DESC').all(userId);
+function hasVoted(pollId, deviceFingerprint, sessionId) {
+  const d = getDb();
+  if (deviceFingerprint) {
+    const fp = d.prepare('SELECT COUNT(*) as cnt FROM votes WHERE poll_id = ? AND device_fingerprint = ?').get(pollId, deviceFingerprint);
+    if (fp.cnt > 0) return true;
+  }
+  if (sessionId) {
+    const s = d.prepare('SELECT COUNT(*) as cnt FROM votes WHERE poll_id = ? AND session_id = ?').get(pollId, sessionId);
+    if (s.cnt > 0) return true;
+  }
+  return false;
 }
 
-function getUsersByDevice(fingerprint) {
+function getRecentPolls(limit = 20) {
+  return getDb().prepare("SELECT slug, title, total_votes, is_closed, created_at, end_date, category, poll_type FROM polls WHERE is_public = 1 ORDER BY created_at DESC LIMIT ?").all(limit);
+}
+
+function getMyPolls(sessionId) {
+  if (!sessionId) return [];
+  return getDb().prepare("SELECT slug, title, total_votes, is_closed, created_at, end_date, category, poll_type FROM polls WHERE session_owner = ? ORDER BY created_at DESC").all(sessionId);
+}
+
+function getMyPollsByIds(pollIds) {
+  if (!pollIds || pollIds.length === 0) return [];
+  const placeholders = pollIds.map(() => '?').join(',');
+  return getDb().prepare(`SELECT slug, title, total_votes, is_closed, created_at, end_date, category, poll_type FROM polls WHERE id IN (${placeholders}) ORDER BY created_at DESC`).all(...pollIds);
+}
+
+function searchPolls({ query, category, sort, page = 1, limit = 12 }) {
+  const d = getDb();
+  let sql = "SELECT slug, title, description, total_votes, is_closed, created_at, end_date, category, poll_type FROM polls WHERE is_public = 1";
+  const params = [];
+
+  if (query && query.trim()) {
+    sql += " AND (title LIKE ? OR description LIKE ?)";
+    const q = `%${query.trim()}%`;
+    params.push(q, q);
+  }
+
+  if (category && category !== 'all') {
+    sql += " AND category = ?";
+    params.push(category);
+  }
+
+  // Exclude closed/expired for "active" sort
+  if (sort === 'active') {
+    sql += " AND is_closed = 0 AND (end_date IS NULL OR end_date > datetime('now')))"
+    // Fix: this is inside the WHERE, just order
+  }
+
+  let orderBy = " ORDER BY created_at DESC";
+  if (sort === 'popular') orderBy = " ORDER BY total_votes DESC";
+  if (sort === 'active') orderBy = " ORDER BY updated_at DESC";
+  if (sort === 'ending') orderBy = " ORDER BY end_date ASC";
+
+  // Count total
+  let countSql = sql.replace(/SELECT .+? FROM/, 'SELECT COUNT(*) as total FROM');
+  // For 'active' sort with the extra condition, rebuild properly
+  let countBase = "SELECT COUNT(*) as total FROM polls WHERE is_public = 1";
+  const countParams = [];
+  if (query && query.trim()) {
+    countBase += " AND (title LIKE ? OR description LIKE ?)";
+    const q = `%${query.trim()}%`;
+    countParams.push(q, q);
+  }
+  if (category && category !== 'all') {
+    countBase += " AND category = ?";
+    countParams.push(category);
+  }
+  if (sort === 'active') {
+    countBase += " AND is_closed = 0 AND (end_date IS NULL OR end_date > datetime('now'))";
+  }
+
+  const total = d.prepare(countBase).get(...countParams).total;
+
+  // Use same conditions as count for actual query
+  let dataSql = countBase.replace('SELECT COUNT(*) as total FROM', 'SELECT slug, title, description, total_votes, is_closed, created_at, end_date, category, poll_type FROM');
+  dataSql += orderBy;
+  dataSql += " LIMIT ? OFFSET ?";
+  const offset = (page - 1) * limit;
+
+  const polls = d.prepare(dataSql).all(...countParams, limit, offset);
+  return { polls, total, page, totalPages: Math.ceil(total / limit) };
+}
+
+function getPollVoters(pollId) {
   return getDb().prepare(`
-    SELECT df.*, u.username, u.full_name, u.student_id 
-    FROM device_fingerprints df
-    JOIN users u ON u.id = df.user_id
-    WHERE df.fingerprint = ?
-    ORDER BY df.last_seen DESC
-  `).all(fingerprint);
+    SELECT v.voter_name, v.cast_at, o.label as option_label,
+           SUBSTR(v.device_fingerprint, 1, 8) as device_short
+    FROM votes v
+    JOIN options o ON o.id = v.option_id
+    WHERE v.poll_id = ?
+    ORDER BY v.cast_at DESC
+  `).all(pollId);
 }
 
-function logVoteAttempt({ userId, electionId, deviceFingerprint, blocked, reason }) {
-  try {
-    getDb().prepare(`
-      INSERT INTO vote_attempts (user_id, election_id, device_fingerprint, was_blocked, block_reason)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(userId, electionId, deviceFingerprint || null, blocked ? 1 : 0, reason);
-  } catch (_) { /* don't let logging failure break voting */ }
+function getPlatformStats() {
+  const d = getDb();
+  const totalPolls = d.prepare('SELECT COUNT(*) as cnt FROM polls').get().cnt;
+  const totalVotes = d.prepare('SELECT COALESCE(SUM(total_votes), 0) as cnt FROM polls').get().cnt;
+  const activePolls = d.prepare("SELECT COUNT(*) as cnt FROM polls WHERE is_closed = 0 AND (end_date IS NULL OR end_date > datetime('now'))").get().cnt;
+  const todayVotes = d.prepare("SELECT COUNT(*) as cnt FROM votes WHERE cast_at >= date('now')").get().cnt;
+  return { totalPolls, totalVotes, activePolls, todayVotes };
 }
 
-function getVoteAttemptsByUser(userId, electionId) {
-  return getDb().prepare(`
-    SELECT COUNT(*) as total,
-           SUM(CASE WHEN was_blocked = 1 THEN 1 ELSE 0 END) as blocked
-    FROM vote_attempts WHERE user_id = ? AND election_id = ?
-  `).get(userId, electionId);
+function getPopularPolls(limit = 6) {
+  return getDb().prepare("SELECT slug, title, total_votes, is_closed, created_at, end_date, category, poll_type FROM polls WHERE is_public = 1 AND is_closed = 0 AND (end_date IS NULL OR end_date > datetime('now')) ORDER BY total_votes DESC LIMIT ?").all(limit);
 }
 
-function getSpamReport() {
-  return getDb().prepare(`
-    SELECT va.device_fingerprint, COUNT(*) as attempts, 
-           SUM(CASE WHEN va.was_blocked = 1 THEN 1 ELSE 0 END) as blocked_count,
-           u.username, u.full_name, va.block_reason
-    FROM vote_attempts va
-    JOIN users u ON u.id = va.user_id
-    WHERE va.was_blocked = 1
-    GROUP BY va.user_id, va.device_fingerprint
-    ORDER BY blocked_count DESC
-    LIMIT 50
-  `).all();
-}
-
-function getSharedDeviceReport() {
-  return getDb().prepare(`
-    SELECT df.fingerprint, COUNT(DISTINCT df.user_id) as user_count,
-           GROUP_CONCAT(DISTINCT u.username) as usernames
-    FROM device_fingerprints df
-    JOIN users u ON u.id = df.user_id
-    GROUP BY df.fingerprint
-    HAVING user_count > 1
-    ORDER BY user_count DESC
-    LIMIT 50
-  `).all();
-}
-
-function hasUserVoted(electionId, userId) {
-  const vote = getDb().prepare('SELECT id FROM votes WHERE election_id = ? AND user_id = ?').get(electionId, userId);
-  return !!vote;
-}
-
-function getVoteReceipt(receiptCode) {
-  return getDb().prepare('SELECT * FROM votes WHERE receipt_code = ?').get(receiptCode);
-}
-
-function getElectionResults(electionId) {
-  return getDb().prepare(`
-    SELECT c.id, c.name, c.position, COUNT(v.id) as vote_count
-    FROM candidates c
-    LEFT JOIN votes v ON v.candidate_id = c.id
-    WHERE c.election_id = ?
-    GROUP BY c.id
-    ORDER BY vote_count DESC
-  `).all(electionId);
-}
-
-function getElectionVoteCount(electionId) {
-  return getDb().prepare('SELECT COUNT(*) as count FROM votes WHERE election_id = ?').get(electionId).count;
-}
-
-function getTotalVoterCount() {
-  return getDb().prepare('SELECT COUNT(*) as count FROM users WHERE role = ?').get('voter').count;
-}
-
-function getElectionVoterTurnout(electionId) {
-  const totalVoters = getTotalVoterCount();
-  const votesCast = getElectionVoteCount(electionId);
-  return totalVoters > 0 ? ((votesCast / totalVoters) * 100).toFixed(1) : 0;
-}
-
-// --- Stats functions ---
-function getOverallStats() {
-  const db = getDb();
-  return {
-    totalVoters: db.prepare('SELECT COUNT(*) as c FROM users WHERE role = ?').get('voter').c,
-    totalElections: db.prepare('SELECT COUNT(*) as c FROM elections').get().c,
-    activeElections: db.prepare("SELECT COUNT(*) as c FROM elections WHERE status = 'active'").get().c,
-    totalVotesCast: db.prepare('SELECT COUNT(*) as c FROM votes').get().c,
-    verifiedVoters: db.prepare('SELECT COUNT(*) as c FROM users WHERE role = ? AND is_verified = 1').get('voter').c,
-    lockedAccounts: db.prepare('SELECT COUNT(*) as c FROM users WHERE is_locked = 1').get().c,
-  };
-}
-
-function getRecentActivity(limit = 20) {
-  return getDb().prepare(`
-    SELECT al.*, u.username, u.full_name
-    FROM audit_log al
-    LEFT JOIN users u ON u.id = al.user_id
-    ORDER BY al.created_at DESC
-    LIMIT ?
-  `).all(limit);
-}
-
-function getVotingTimeline(electionId) {
-  return getDb().prepare(`
-    SELECT strftime('%Y-%m-%d %H:00', cast_at) as hour, COUNT(*) as count
-    FROM votes
-    WHERE election_id = ?
-    GROUP BY hour
-    ORDER BY hour ASC
-  `).all(electionId);
-}
-
-// --- Audit log ---
-function logAudit({ userId, action, resourceType, resourceId, details, ipAddress, userAgent }) {
-  getDb().prepare(`
-    INSERT INTO audit_log (user_id, action, resource_type, resource_id, details, ip_address, user_agent)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(userId || null, action, resourceType || null, resourceId || null, details || null, ipAddress || null, userAgent || null);
+function getEndingSoonPolls(limit = 6) {
+  return getDb().prepare("SELECT slug, title, total_votes, is_closed, created_at, end_date, category, poll_type FROM polls WHERE is_public = 1 AND is_closed = 0 AND end_date IS NOT NULL AND end_date > datetime('now') ORDER BY end_date ASC LIMIT ?").all(limit);
 }
 
 module.exports = {
-  initialize,
-  getDb,
-  createUser,
-  getUserByUsername,
-  getUserById,
-  getAllVoters,
-  verifyPassword,
-  updateLoginAttempts,
-  resetLoginAttempts,
-  toggleUserLock,
-  toggleUserVerification,
-  createElection,
-  getElectionById,
-  getAllElections,
-  getActiveElections,
-  updateElectionStatus,
-  updateElection,
-  deleteElection,
-  addCandidate,
-  getCandidatesByElection,
-  deleteCandidate,
-  castVote,
-  hasUserVoted,
-  getVoteReceipt,
-  getElectionResults,
-  getElectionVoteCount,
-  getTotalVoterCount,
-  getElectionVoterTurnout,
-  getOverallStats,
-  getRecentActivity,
-  getVotingTimeline,
-  logAudit,
-  logVoteAttempt,
-  getVoteAttemptsByUser,
-  getSpamReport,
-  getSharedDeviceReport,
-  trackDeviceFingerprint,
-  getDevicesByUser,
-  getUsersByDevice,
+  initialize, getDb, createPoll, duplicatePoll, getPollBySlug, getPollById,
+  getOptionsByPoll, getPollResults, closePoll, reopenPoll,
+  deletePoll, verifyAdminPassword, castVote, hasVoted,
+  getRecentPolls, getMyPolls, getMyPollsByIds, searchPolls,
+  getPollVoters, getPlatformStats, getPopularPolls, getEndingSoonPolls,
+  CATEGORIES, POLL_TYPES,
 };

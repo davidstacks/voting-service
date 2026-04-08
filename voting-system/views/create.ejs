@@ -1,0 +1,111 @@
+<%- include('partials/head') %>
+<%- include('partials/nav') %>
+
+<% if (typeof success !== 'undefined' && success) { %>
+  <div class="alert alert-success"><i class="fas fa-check-circle"></i> <%= success %></div>
+<% } %>
+<% if (typeof error !== 'undefined' && error) { %>
+  <div class="alert alert-error"><i class="fas fa-exclamation-circle"></i> <%= error %></div>
+<% } %>
+
+<div class="container" style="max-width: 720px; margin-top: 2rem;">
+  <div class="card">
+    <h2 class="card-title"><i class="fas fa-plus-circle"></i> Create a Vote</h2>
+    <p class="card-subtitle">Set up your poll in seconds. No account needed!</p>
+
+    <form id="create-form" method="POST" action="/create">
+
+      <!-- Poll Type Selector -->
+      <div class="form-group">
+        <label>Poll Type</label>
+        <div class="poll-type-grid">
+          <% pollTypes.forEach(pt => { %>
+            <label class="poll-type-card<%= pt.id === 'choice' ? ' selected' : '' %>">
+              <input type="radio" name="pollType" value="<%= pt.id %>" <%= pt.id === 'choice' ? 'checked' : '' %>>
+              <i class="fas <%= pt.icon %>"></i>
+              <span class="poll-type-name"><%= pt.label %></span>
+              <span class="poll-type-desc"><%= pt.desc %></span>
+            </label>
+          <% }); %>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="title">Title <span class="required">*</span></label>
+        <input type="text" id="title" name="title" placeholder="e.g. What should we have for lunch?" required maxlength="200">
+      </div>
+
+      <div class="form-group">
+        <label for="description">Description <span class="optional">(optional)</span></label>
+        <textarea id="description" name="description" rows="2" placeholder="Add more context about this vote..." maxlength="1000"></textarea>
+      </div>
+
+      <!-- Options (only for choice type) -->
+      <div id="options-section" class="form-group">
+        <label>Options <span class="required">*</span></label>
+        <div id="options-container">
+          <div class="option-row">
+            <input type="text" name="options" placeholder="Option 1" required maxlength="200">
+          </div>
+          <div class="option-row">
+            <input type="text" name="options" placeholder="Option 2" required maxlength="200">
+          </div>
+        </div>
+        <button type="button" id="add-option" class="btn btn-outline btn-sm" style="margin-top: 0.5rem;">
+          <i class="fas fa-plus"></i> Add Option
+        </button>
+      </div>
+
+      <!-- Category -->
+      <div class="form-group">
+        <label for="category">Category</label>
+        <select id="category" name="category">
+          <% categories.forEach(cat => { %>
+            <option value="<%= cat.id %>"><%= cat.label %></option>
+          <% }); %>
+        </select>
+      </div>
+
+      <div class="form-divider"></div>
+
+      <div class="form-group">
+        <label>Settings</label>
+        <div class="checkbox-group">
+          <label class="checkbox-label" id="allow-multiple-label">
+            <input type="checkbox" name="allowMultiple">
+            <span>Allow selecting multiple options</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" name="requireName">
+            <span>Require voter's name</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" name="showResults" value="hide">
+            <span>Hide results until vote closes</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" name="isPublic" value="private">
+            <span>Make this poll private (unlisted)</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="endDate">End Date <span class="optional">(optional)</span></label>
+        <input type="datetime-local" id="endDate" name="endDate">
+      </div>
+
+      <div class="form-group">
+        <label for="adminPassword">Admin Password <span class="optional">(optional — to manage vote from other devices)</span></label>
+        <input type="password" id="adminPassword" name="adminPassword" placeholder="Set a password to close/delete the vote" maxlength="100">
+      </div>
+
+      <button type="submit" class="btn btn-primary btn-lg btn-full">
+        <i class="fas fa-rocket"></i> Create Vote
+      </button>
+    </form>
+  </div>
+</div>
+
+<%- include('partials/site-footer') %>
+<%- include('partials/footer') %>

@@ -1,0 +1,73 @@
+<%- include('partials/head') %>
+<%- include('partials/nav') %>
+
+<div class="container" style="max-width: 720px; margin-top: 2rem;">
+  <div class="poll-header">
+    <h1 class="poll-title"><%= poll.title %></h1>
+    <% if (poll.description) { %>
+      <p class="poll-description"><%= poll.description %></p>
+    <% } %>
+    <div class="poll-meta">
+      <span><i class="fas fa-users"></i> <%= totalVotes %> vote<%= totalVotes !== 1 ? 's' : '' %></span>
+      <a href="/v/<%= poll.slug %>" class="btn btn-outline btn-sm"><i class="fas fa-arrow-left"></i> Back to Vote</a>
+    </div>
+  </div>
+
+  <!-- Full Results -->
+  <div class="card results-card" id="results-card" data-slug="<%= poll.slug %>">
+    <div class="results-header">
+      <h3><i class="fas fa-chart-bar"></i> Results</h3>
+      <span class="live-indicator" id="live-dot"><i class="fas fa-circle"></i> Live</span>
+    </div>
+    <div class="results-list" id="results-list">
+      <% results.forEach((r, i) => { %>
+        <% const pct = totalVotes > 0 ? ((r.vote_count / totalVotes) * 100).toFixed(1) : 0; %>
+        <div class="result-row<%= i === 0 && r.vote_count > 0 ? ' winner' : '' %>">
+          <div class="result-label">
+            <span class="result-name">
+              <% if (i === 0 && r.vote_count > 0) { %><i class="fas fa-trophy" style="color: #f59e0b;"></i> <% } %>
+              <%= r.label %>
+            </span>
+            <span class="result-pct"><%= pct %>%</span>
+          </div>
+          <div class="result-bar-bg">
+            <div class="result-bar" style="width: <%= pct %>%"></div>
+          </div>
+          <div class="result-votes"><%= r.vote_count %> vote<%= r.vote_count !== 1 ? 's' : '' %></div>
+        </div>
+      <% }); %>
+    </div>
+    <div class="total-votes-line"><i class="fas fa-users"></i> <span id="total-votes-num"><%= totalVotes %></span> total votes</div>
+  </div>
+
+  <% if (isOwner && voters.length > 0) { %>
+    <div class="card">
+      <h3><i class="fas fa-list"></i> Voter Log</h3>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Voted For</th>
+              <th>Time</th>
+              <th>Device</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% voters.forEach(v => { %>
+              <tr>
+                <td><%= v.voter_name || 'Anonymous' %></td>
+                <td><strong><%= v.option_label %></strong></td>
+                <td><%= new Date(v.cast_at).toLocaleString() %></td>
+                <td><code><%= v.device_short || '—' %></code></td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  <% } %>
+</div>
+
+<%- include('partials/site-footer') %>
+<%- include('partials/footer') %>

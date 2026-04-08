@@ -1,68 +1,183 @@
 <%- include('partials/head') %>
-<div class="landing">
-  <nav class="landing-nav">
-    <div class="logo"><i class="fas fa-shield-halved"></i> SecureVote</div>
-    <div class="nav-links">
-      <a href="/auth/login" class="btn btn-outline">Log In</a>
-      <a href="/auth/register" class="btn btn-primary">Register</a>
-    </div>
-  </nav>
+<%- include('partials/nav') %>
 
-  <div class="landing-hero">
-    <div class="hero-content">
-      <div class="hero-badge">
-        <i class="fas fa-lock"></i> Enterprise-Grade Encryption &amp; Security
-      </div>
-      <h1>Secure Voting for Schools &amp; Organizations</h1>
-      <p>SecureVote provides a tamper-proof, auditable, and transparent voting platform built for student councils, clubs, and organizations. Every vote is encrypted, verified, and protected.</p>
-      <div class="hero-buttons">
-        <a href="/auth/register" class="btn btn-primary btn-lg"><i class="fas fa-user-plus"></i> Register to Vote</a>
-        <a href="/auth/login" class="btn btn-outline btn-lg"><i class="fas fa-sign-in-alt"></i> Admin Login</a>
-      </div>
-    </div>
-  </div>
+<% if (typeof success !== 'undefined' && success) { %>
+  <div class="alert alert-success"><i class="fas fa-check-circle"></i> <%= success %></div>
+<% } %>
+<% if (typeof error !== 'undefined' && error) { %>
+  <div class="alert alert-error"><i class="fas fa-exclamation-circle"></i> <%= error %></div>
+<% } %>
 
-  <div class="features-grid">
-    <div class="feature-card">
-      <div class="icon">🔐</div>
-      <h3>SHA-256 Vote Hashing</h3>
-      <p>Every vote is cryptographically hashed with SHA-256, creating an immutable record that cannot be altered or forged.</p>
-    </div>
-    <div class="feature-card">
-      <div class="icon">🛡️</div>
-      <h3>Brute Force Protection</h3>
-      <p>Accounts automatically lock after 5 failed attempts. Rate limiting prevents automated attacks on all endpoints.</p>
-    </div>
-    <div class="feature-card">
-      <div class="icon">📊</div>
-      <h3>Real-Time Analytics</h3>
-      <p>Admins get live dashboards with voter turnout, participation rates, and comprehensive election statistics.</p>
-    </div>
-    <div class="feature-card">
-      <div class="icon">🧾</div>
-      <h3>Vote Receipts</h3>
-      <p>Each voter receives a unique cryptographic receipt code to independently verify their vote was recorded.</p>
-    </div>
-    <div class="feature-card">
-      <div class="icon">📋</div>
-      <h3>Full Audit Trail</h3>
-      <p>Every action — logins, votes, admin changes — is logged with timestamps and user agents for complete accountability.</p>
-    </div>
-    <div class="feature-card">
-      <div class="icon">✅</div>
-      <h3>Identity Verification</h3>
-      <p>Multi-step voter verification ensures only authorized, verified students and members can participate in elections.</p>
-    </div>
-    <div class="feature-card">
-      <div class="icon">🏫</div>
-      <h3>Built for Shared Networks</h3>
-      <p>Works perfectly on school and company networks. Device fingerprinting and session tracking replace IP blocking — no false positives on shared Wi-Fi.</p>
-    </div>
-    <div class="feature-card">
-      <div class="icon">🔏</div>
-      <h3>Device Fingerprinting</h3>
-      <p>Advanced browser fingerprinting detects multi-account abuse without relying on IP addresses. One device, one vote.</p>
+<div class="hero">
+  <div class="hero-inner">
+    <div class="hero-badge"><i class="fas fa-bolt"></i> Free Voting Hosting Platform</div>
+    <h1>Host any vote in seconds</h1>
+    <p class="hero-sub">Create polls, share links, collect votes — no sign-up required. Used by schools, teams, and organizations worldwide.</p>
+    <div class="hero-actions">
+      <a href="/create" class="btn btn-primary btn-lg"><i class="fas fa-plus-circle"></i> Create a Vote</a>
+      <a href="/explore" class="btn btn-outline btn-lg"><i class="fas fa-compass"></i> Explore Votes</a>
     </div>
   </div>
 </div>
+
+<!-- Platform Stats -->
+<div class="stats-bar">
+  <div class="stat-item">
+    <span class="stat-num"><%= stats.totalPolls %></span>
+    <span class="stat-label">Polls Created</span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-num"><%= stats.totalVotes %></span>
+    <span class="stat-label">Votes Cast</span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-num"><%= stats.activePolls %></span>
+    <span class="stat-label">Active Now</span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-num"><%= stats.todayVotes %></span>
+    <span class="stat-label">Votes Today</span>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- How it Works -->
+  <div class="section">
+    <h2 class="section-title section-title-center">How It Works</h2>
+    <div class="steps-row">
+      <div class="step-item">
+        <div class="step-num">1</div>
+        <div class="step-icon"><i class="fas fa-pen-to-square"></i></div>
+        <h3>Create</h3>
+        <p>Set up your poll with a title, options, and settings. Choose from multiple poll types.</p>
+      </div>
+      <div class="step-arrow"><i class="fas fa-arrow-right"></i></div>
+      <div class="step-item">
+        <div class="step-num">2</div>
+        <div class="step-icon"><i class="fas fa-share-nodes"></i></div>
+        <h3>Share</h3>
+        <p>Get a unique link, QR code, or embed widget. Share it anywhere — chat, email, websites.</p>
+      </div>
+      <div class="step-arrow"><i class="fas fa-arrow-right"></i></div>
+      <div class="step-item">
+        <div class="step-num">3</div>
+        <div class="step-icon"><i class="fas fa-chart-pie"></i></div>
+        <h3>Results</h3>
+        <p>Watch votes come in live. Get instant results with charts and analytics.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Features -->
+  <div class="section">
+    <h2 class="section-title section-title-center">Everything you need to host votes</h2>
+    <div class="features-row">
+      <div class="feature-item">
+        <div class="feature-icon"><i class="fas fa-bolt"></i></div>
+        <h3>Instant Setup</h3>
+        <p>Create a poll in under 30 seconds. No account or registration needed.</p>
+      </div>
+      <div class="feature-item">
+        <div class="feature-icon"><i class="fas fa-list-check"></i></div>
+        <h3>Multiple Poll Types</h3>
+        <p>Multiple choice, Yes/No, and 5-star rating polls — pick the right format.</p>
+      </div>
+      <div class="feature-item">
+        <div class="feature-icon"><i class="fas fa-link"></i></div>
+        <h3>Shareable Links</h3>
+        <p>Every poll gets a unique short URL. Copy, share, or generate a QR code.</p>
+      </div>
+      <div class="feature-item">
+        <div class="feature-icon"><i class="fas fa-shield-halved"></i></div>
+        <h3>Anti-Cheat</h3>
+        <p>Device fingerprinting + session tracking prevents duplicate votes.</p>
+      </div>
+      <div class="feature-item">
+        <div class="feature-icon"><i class="fas fa-code"></i></div>
+        <h3>Embed Anywhere</h3>
+        <p>Get an embed code to host your poll directly on any website.</p>
+      </div>
+      <div class="feature-item">
+        <div class="feature-icon"><i class="fas fa-chart-bar"></i></div>
+        <h3>Live Results</h3>
+        <p>Results update automatically. Share a live results link with everyone.</p>
+      </div>
+      <div class="feature-item">
+        <div class="feature-icon"><i class="fas fa-tags"></i></div>
+        <h3>Categories</h3>
+        <p>Organize polls by category — School, Work, Fun, Sports, Events & more.</p>
+      </div>
+      <div class="feature-item">
+        <div class="feature-icon"><i class="fas fa-clone"></i></div>
+        <h3>Duplicate Polls</h3>
+        <p>Re-run any poll instantly. Duplicate it with one click and start fresh.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Popular Polls -->
+  <% if (popularPolls.length > 0) { %>
+    <div class="section">
+      <div class="section-header">
+        <h2 class="section-title"><i class="fas fa-fire"></i> Popular Votes</h2>
+        <a href="/explore?sort=popular" class="btn btn-outline btn-sm">View All <i class="fas fa-arrow-right"></i></a>
+      </div>
+      <div class="poll-grid">
+        <% popularPolls.forEach(p => { %>
+          <a href="/v/<%= p.slug %>" class="poll-card">
+            <div class="poll-card-top">
+              <span class="tag tag-category"><%= p.category %></span>
+              <span class="badge badge-open">Active</span>
+            </div>
+            <div class="poll-card-title"><%= p.title %></div>
+            <div class="poll-card-meta">
+              <span><i class="fas fa-users"></i> <%= p.total_votes %> vote<%= p.total_votes !== 1 ? 's' : '' %></span>
+            </div>
+          </a>
+        <% }); %>
+      </div>
+    </div>
+  <% } %>
+
+  <!-- Recent Polls -->
+  <% if (recentPolls.length > 0) { %>
+    <div class="section">
+      <div class="section-header">
+        <h2 class="section-title"><i class="fas fa-clock-rotate-left"></i> Recent Votes</h2>
+        <a href="/explore?sort=newest" class="btn btn-outline btn-sm">View All <i class="fas fa-arrow-right"></i></a>
+      </div>
+      <div class="poll-grid">
+        <% recentPolls.forEach(p => { %>
+          <a href="/v/<%= p.slug %>" class="poll-card">
+            <div class="poll-card-top">
+              <span class="tag tag-category"><%= p.category %></span>
+              <% if (p.is_closed) { %>
+                <span class="badge badge-closed">Closed</span>
+              <% } else if (p.end_date && new Date(p.end_date) < new Date()) { %>
+                <span class="badge badge-closed">Ended</span>
+              <% } else { %>
+                <span class="badge badge-open">Active</span>
+              <% } %>
+            </div>
+            <div class="poll-card-title"><%= p.title %></div>
+            <div class="poll-card-meta">
+              <span><i class="fas fa-users"></i> <%= p.total_votes %> vote<%= p.total_votes !== 1 ? 's' : '' %></span>
+              <span><i class="fas fa-clock"></i> <%= new Date(p.created_at).toLocaleDateString() %></span>
+            </div>
+          </a>
+        <% }); %>
+      </div>
+    </div>
+  <% } %>
+
+  <!-- CTA -->
+  <div class="cta-section">
+    <h2>Ready to host your vote?</h2>
+    <p>It's free, instant, and no sign-up required.</p>
+    <a href="/create" class="btn btn-primary btn-lg"><i class="fas fa-rocket"></i> Create a Vote Now</a>
+  </div>
+</div>
+
+<%- include('partials/site-footer') %>
 <%- include('partials/footer') %>

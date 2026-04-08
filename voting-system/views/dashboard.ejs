@@ -1,0 +1,74 @@
+<%- include('partials/head') %>
+<%- include('partials/nav') %>
+
+<% if (typeof success !== 'undefined' && success) { %>
+  <div class="alert alert-success"><i class="fas fa-check-circle"></i> <%= success %></div>
+<% } %>
+<% if (typeof error !== 'undefined' && error) { %>
+  <div class="alert alert-error"><i class="fas fa-exclamation-circle"></i> <%= error %></div>
+<% } %>
+
+<div class="container">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title"><i class="fas fa-th-large"></i> My Polls</h1>
+      <p class="page-subtitle">Manage all the votes you've created</p>
+    </div>
+    <a href="/create" class="btn btn-primary"><i class="fas fa-plus"></i> Create New Vote</a>
+  </div>
+
+  <% if (myPolls.length === 0) { %>
+    <div class="empty-state">
+      <div class="empty-icon"><i class="fas fa-inbox"></i></div>
+      <h3>No polls yet</h3>
+      <p>Create your first vote and it will appear here.</p>
+      <a href="/create" class="btn btn-primary btn-lg"><i class="fas fa-plus-circle"></i> Create Your First Vote</a>
+    </div>
+  <% } else { %>
+    <div class="dashboard-stats">
+      <div class="stat-mini">
+        <span class="stat-mini-num"><%= myPolls.length %></span>
+        <span class="stat-mini-label">Total Polls</span>
+      </div>
+      <div class="stat-mini">
+        <span class="stat-mini-num"><%= myPolls.reduce((s, p) => s + p.total_votes, 0) %></span>
+        <span class="stat-mini-label">Total Votes</span>
+      </div>
+      <div class="stat-mini">
+        <span class="stat-mini-num"><%= myPolls.filter(p => !p.is_closed && (!p.end_date || new Date(p.end_date) > new Date())).length %></span>
+        <span class="stat-mini-label">Active</span>
+      </div>
+    </div>
+
+    <div class="poll-list">
+      <% myPolls.forEach(p => { %>
+        <% const cat = categories.find(c => c.id === p.category) || categories[0]; %>
+        <a href="/v/<%= p.slug %>" class="poll-list-item">
+          <div class="poll-list-icon">
+            <i class="fas <%= cat.icon %>"></i>
+          </div>
+          <div class="poll-list-info">
+            <div class="poll-list-title"><%= p.title %></div>
+            <div class="poll-list-meta">
+              <span class="tag tag-category"><i class="fas <%= cat.icon %>"></i> <%= cat.label %></span>
+              <span><i class="fas fa-users"></i> <%= p.total_votes %> votes</span>
+              <span><i class="fas fa-clock"></i> <%= new Date(p.created_at).toLocaleDateString() %></span>
+            </div>
+          </div>
+          <div class="poll-list-status">
+            <% if (p.is_closed) { %>
+              <span class="badge badge-closed"><i class="fas fa-lock"></i> Closed</span>
+            <% } else if (p.end_date && new Date(p.end_date) < new Date()) { %>
+              <span class="badge badge-closed"><i class="fas fa-clock"></i> Ended</span>
+            <% } else { %>
+              <span class="badge badge-open"><i class="fas fa-circle"></i> Active</span>
+            <% } %>
+          </div>
+        </a>
+      <% }); %>
+    </div>
+  <% } %>
+</div>
+
+<%- include('partials/site-footer') %>
+<%- include('partials/footer') %>

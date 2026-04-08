@@ -1,0 +1,182 @@
+<%- include('partials/head') %>
+<%- include('partials/nav') %>
+
+<% if (typeof success !== 'undefined' && success) { %>
+  <div class="alert alert-success"><i class="fas fa-check-circle"></i> <%= success %></div>
+<% } %>
+<% if (typeof error !== 'undefined' && error) { %>
+  <div class="alert alert-error"><i class="fas fa-exclamation-circle"></i> <%= error %></div>
+<% } %>
+
+<div class="container" style="max-width: 720px; margin-top: 2rem;">
+
+  <!-- Poll Header -->
+  <div class="poll-header">
+    <div class="poll-header-top">
+      <span class="tag tag-category"><i class="fas <%= categoryObj.icon %>"></i> <%= categoryObj.label %></span>
+      <% if (poll.poll_type && poll.poll_type !== 'choice') { %>
+        <span class="tag tag-type"><%= poll.poll_type === 'yesno' ? 'Yes/No' : 'Rating' %></span>
+      <% } %>
+    </div>
+    <h1 class="poll-title"><%= poll.title %></h1>
+    <% if (poll.description) { %>
+      <p class="poll-description"><%= poll.description %></p>
+    <% } %>
+    <div class="poll-meta">
+      <span><i class="fas fa-users"></i> <%= totalVotes %> vote<%= totalVotes !== 1 ? 's' : '' %></span>
+      <% if (poll.is_closed) { %>
+        <span class="badge badge-closed"><i class="fas fa-lock"></i> Closed</span>
+      <% } else if (isExpired) { %>
+        <span class="badge badge-closed"><i class="fas fa-clock"></i> Ended</span>
+      <% } else { %>
+        <span class="badge badge-open"><i class="fas fa-circle"></i> Active</span>
+      <% } %>
+      <% if (poll.end_date && !poll.is_closed && !isExpired) { %>
+        <span class="poll-timer" data-end="<%= poll.end_date %>"><i class="fas fa-clock"></i> Ends: <%= new Date(poll.end_date).toLocaleString() %></span>
+      <% } %>
+    </div>
+  </div>
+
+  <!-- Share & Embed Tabs -->
+  <div class="share-card card">
+    <div class="share-tabs">
+      <button class="share-tab active" data-tab="link"><i class="fas fa-link"></i> Link</button>
+      <button class="share-tab" data-tab="embed"><i class="fas fa-code"></i> Embed</button>
+      <button class="share-tab" data-tab="qr"><i class="fas fa-qrcode"></i> QR Code</button>
+    </div>
+    <div class="share-content" id="share-link">
+      <div class="share-bar">
+        <input type="text" id="share-url" readonly onclick="this.select()">
+        <button type="button" class="btn btn-primary btn-sm" id="copy-link"><i class="fas fa-copy"></i> Copy</button>
+      </div>
+    </div>
+    <div class="share-content" id="share-embed" style="display: none;">
+      <div class="share-bar">
+        <input type="text" id="embed-code" readonly onclick="this.select()">
+        <button type="button" class="btn btn-primary btn-sm" id="copy-embed"><i class="fas fa-copy"></i> Copy</button>
+      </div>
+      <p class="share-hint">Paste this HTML on any website to embed this poll.</p>
+    </div>
+    <div class="share-content" id="share-qr" style="display: none;">
+      <div class="qr-container" id="qr-code"></div>
+      <p class="share-hint">Scan with a phone camera to open this poll.</p>
+    </div>
+  </div>
+  <script>
+    document.getElementById('share-url').value = window.location.href;
+    document.getElementById('embed-code').value = '<iframe src="' + window.location.href + '/embed" width="100%" height="500" frameborder="0"></iframe>';
+  </script>
+
+  <!-- Voting Form -->
+  <% if (canVote) { %>
+    <div class="card voting-card">
+      <h3><i class="fas fa-vote-yea"></i> Cast Your Vote</h3>
+      <form id="vote-form" method="POST" action="/v/<%= poll.slug %>/vote">
+        <input type="hidden" name="deviceFingerprint" id="deviceFingerprint" value="">
+
+        <% if (poll.require_name) { %>
+          <div class="form-group">
+            <label for="voterName">Your Name <span class="required">*</span></label>
+            <input type="text" id="voterName" name="voterName" placeholder="Enter your name" required maxlength="100">
+          </div>
+        <% } %>
+
+        <div class="options-list">
+          <% if (poll.poll_type === 'rating') { %>
+            <!-- Star Rating -->
+            <div class="rating-stars">
+              <% options.forEach((o, i) => { %>
+                <label class="star-option" title="<%= o.label %>">
+                  <input type="radio" name="optionId" value="<%= o.id %>" required>
+                  <i class="fas fa-star"></i>
+                </label>
+              <% }); %>
+            </div>
+          <% } else { %>
+            <% options.forEach(o => { %>
+              <label class="option-card<%= poll.poll_type === 'yesno' ? ' yesno-card' : '' %>">
+                <input type="<%= poll.allow_multiple ? 'checkbox' : 'radio' %>" name="optionId" value="<%= o.id %>" required>
+                <span class="option-check"><i class="fas fa-check"></i></span>
+                <span class="option-label">
+                  <% if (poll.poll_type === 'yesno') { %>
+                    <i class="fas fa-<%= o.label === 'Yes' ? 'thumbs-up' : 'thumbs-down' %>"></i>
+                  <% } %>
+                  <%= o.label %>
+                </span>
+              </label>
+            <% }); %>
+          <% } %>
+        </div>
+
+        <button type="submit" id="vote-submit" class="btn btn-primary btn-lg btn-full" disabled>
+          <i class="fas fa-paper-plane"></i> Vote
+        </button>
+      </form>
+    </div>
+  <% } %>
+
+  <% if (voted) { %>
+    <div class="voted-banner">
+      <i class="fas fa-check-circle"></i> You have voted!
+    </div>
+  <% } %>
+
+  <!-- Results -->
+  <% if (showResults && results) { %>
+    <div class="card results-card" id="results-card" data-slug="<%= poll.slug %>">
+      <div class="results-header">
+        <h3><i class="fas fa-chart-bar"></i> Results</h3>
+        <div class="results-actions">
+          <span class="live-indicator" id="live-dot"><i class="fas fa-circle"></i> Live</span>
+          <a href="/v/<%= poll.slug %>/results" class="btn btn-outline btn-sm"><i class="fas fa-expand"></i> Full</a>
+        </div>
+      </div>
+      <div class="results-list" id="results-list">
+        <% results.forEach(r => { %>
+          <% const pct = totalVotes > 0 ? ((r.vote_count / totalVotes) * 100).toFixed(1) : 0; %>
+          <div class="result-row">
+            <div class="result-label">
+              <span class="result-name"><%= r.label %></span>
+              <span class="result-pct"><%= pct %>%</span>
+            </div>
+            <div class="result-bar-bg">
+              <div class="result-bar" style="width: <%= pct %>%"></div>
+            </div>
+            <div class="result-votes"><%= r.vote_count %> vote<%= r.vote_count !== 1 ? 's' : '' %></div>
+          </div>
+        <% }); %>
+      </div>
+      <div class="total-votes-line"><i class="fas fa-users"></i> <span id="total-votes-num"><%= totalVotes %></span> total votes</div>
+    </div>
+  <% } %>
+
+  <!-- Admin Controls -->
+  <% if (isOwner || poll.admin_password_hash) { %>
+    <div class="card admin-card">
+      <h3><i class="fas fa-gear"></i> Manage Vote</h3>
+      <% if (!isOwner) { %>
+        <p class="card-subtitle">Enter the admin password to manage this vote.</p>
+      <% } %>
+      <form method="POST" action="/v/<%= poll.slug %>/admin" class="admin-form">
+        <% if (!isOwner) { %>
+          <div class="form-group">
+            <input type="password" name="adminPassword" placeholder="Admin password" required>
+          </div>
+        <% } %>
+        <div class="admin-buttons">
+          <% if (poll.is_closed) { %>
+            <button type="submit" name="action" value="reopen" class="btn btn-outline btn-sm"><i class="fas fa-unlock"></i> Reopen</button>
+          <% } else { %>
+            <button type="submit" name="action" value="close" class="btn btn-outline btn-sm"><i class="fas fa-lock"></i> Close Vote</button>
+          <% } %>
+          <button type="submit" name="action" value="duplicate" class="btn btn-outline btn-sm"><i class="fas fa-clone"></i> Duplicate</button>
+          <button type="submit" name="action" value="delete" class="btn btn-danger btn-sm" onclick="return confirm('Are you sure you want to delete this vote? This cannot be undone.')"><i class="fas fa-trash"></i> Delete</button>
+        </div>
+      </form>
+    </div>
+  <% } %>
+
+</div>
+
+<%- include('partials/site-footer') %>
+<%- include('partials/footer') %>
