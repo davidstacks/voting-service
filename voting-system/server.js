@@ -5,11 +5,16 @@ const helmet = require('helmet');
 const cookieParser = require('cookie-parser');
 const path = require('path');
 const crypto = require('crypto');
+const { validationResult, body } = require('express-validator');
 const db = require('./db/database');
 const rateLimit = require('express-rate-limit');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const IS_PROD = process.env.NODE_ENV === 'production';
+
+// Trust reverse proxy (nginx, cloudflare, render, railway, etc.)
+app.set('trust proxy', IS_PROD ? 1 : false);
 
 db.initialize();
 
@@ -17,16 +22,18 @@ db.initialize();
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://cdnjs.cloudflare.com"],
-      fontSrc: ["'self'", "https://fonts.gstatic.com", "https://cdnjs.cloudflare.com"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com"],
-      imgSrc: ["'self'", "data:", "https:"],
-      frameSrc: ["'self'"],
+      defaultSrc:     ["'self'"],
+      styleSrc:       ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://cdnjs.cloudflare.com"],
+      fontSrc:        ["'self'", "https://fonts.gstatic.com", "https://cdnjs.cloudflare.com"],
+      scriptSrc:      ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com"],
+      imgSrc:         ["'self'", "data:", "https:"],
+      frameSrc:       ["'self'"],
       frameAncestors: ["*"],
+      connectSrc:     ["'self'"],
     },
   },
   crossOriginEmbedderPolicy: false,
+  hsts: IS_PROD ? { maxAge: 31536000, includeSubDomains: true } : false,
 }));
 app.disable('x-powered-by');
 
@@ -43,20 +50,23 @@ app.use(session({
   saveUninitialized: true,
   cookie: {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: IS_PROD,
     sameSite: 'lax',
     maxAge: 7 * 24 * 60 * 60 * 1000,
   },
 }));
 
 // Rate limiting
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 300, standardHeaders: true, legacyHeaders: false }));
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000, max: 500,
+  standardHeaders: true, legacyHeaders: false,
+  skip: (req) => req.path.startsWith('/css') || req.path.startsWith('/js'),
+}));
 
 const voteLimiter = rateLimit({
   windowMs: 60 * 1000, max: 10,
   message: 'Too many requests. Please slow down.',
   standardHeaders: true, legacyHeaders: false,
-  validate: { xForwardedForHeader: false, ip: false },
 });
 
 const createLimiter = rateLimit({
@@ -70,26 +80,56 @@ app.use(express.static(path.join(__dirname, 'public'), { maxAge: '1d' }));
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
-// Flash messages via session
+// Flash messages + CSRF token
 app.use((req, res, next) => {
   res.locals.success = req.session.success; delete req.session.success;
-  res.locals.error = req.session.error; delete req.session.error;
+  res.locals.error   = req.session.error;   delete req.session.error;
+  if (!req.session.csrf) req.session.csrf = crypto.randomBytes(32).toString('hex');
+  res.locals.csrf = req.session.csrf;
+  res.locals.myPollCount = req.session.myPolls ? req.session.myPolls.length : 0;
   next();
 });
 
+// CSRF verification for state-changing POST routes
+function verifyCsrf(req, res, next) {
+  const token = req.body._csrf;
+  if (!token || token !== req.session.csrf) {
+    return res.status(403).render('error', { title: '403 - Forbidden', message: 'Invalid form token. Please go back and try again.', code: 403 });
+  }
+  next();
+}
+
+// Wrap async route handlers — propagates thrown errors to Express error handler
+function asyncHandler(fn) {
+  return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+}
+
+function getClientIp(req) {
+  return req.ip || req.socket?.remoteAddress || 'unknown';
+}
+
 // ===== ROUTES =====
 
+// Prevent 404 noise for common browser requests
+app.get('/favicon.ico', (req, res) => res.status(204).end());
+app.get('/health',      (req, res) => res.json({ status: 'ok', uptime: process.uptime() }));
+
+// Redirect legacy/stale auth routes so they don't return 500
+app.get('/auth/login',  (req, res) => res.redirect('/'));
+app.get('/auth/logout', (req, res) => res.redirect('/'));
+app.get('/login',       (req, res) => res.redirect('/'));
+
 // Landing page
-app.get('/', (req, res) => {
+app.get('/', asyncHandler(async (req, res) => {
   const stats = db.getPlatformStats();
   const recentPolls = db.getRecentPolls(6);
   const popularPolls = db.getPopularPolls(6);
   const myPollCount = req.session.myPolls ? req.session.myPolls.length : 0;
-  res.render('landing', { title: 'GVote — Free Voting Hosting Platform', stats, recentPolls, popularPolls, myPollCount });
-});
+  res.render('landing', { title: 'GVote — Free Voting Hosting Platform', stats, recentPolls, popularPolls });
+}));
 
 // Explore page
-app.get('/explore', (req, res) => {
+app.get('/explore', asyncHandler(async (req, res) => {
   const { q, category, sort, page } = req.query;
   const pageNum = parseInt(page) || 1;
   const result = db.searchPolls({ query: q, category: category || 'all', sort: sort || 'newest', page: pageNum, limit: 12 });
@@ -101,10 +141,10 @@ app.get('/explore', (req, res) => {
     sort: sort || 'newest',
     categories: db.CATEGORIES,
   });
-});
+}));
 
 // Dashboard — My Polls
-app.get('/dashboard', (req, res) => {
+app.get('/dashboard', asyncHandler(async (req, res) => {
   let myPolls = [];
   if (req.session.myPolls && req.session.myPolls.length > 0) {
     myPolls = db.getMyPollsByIds(req.session.myPolls);
@@ -114,7 +154,7 @@ app.get('/dashboard', (req, res) => {
     myPolls,
     categories: db.CATEGORIES,
   });
-});
+}));
 
 // Create poll page
 app.get('/create', (req, res) => {
@@ -126,8 +166,17 @@ app.get('/create', (req, res) => {
 });
 
 // Submit new poll
-app.post('/create', createLimiter, (req, res) => {
-  const { title, description, adminPassword, allowMultiple, showResults, requireName, endDate, category, pollType, isPublic } = req.body;
+app.post('/create', createLimiter, verifyCsrf,
+  [
+    body('title').trim().notEmpty().withMessage('Title is required.').isLength({ max: 200 }),
+    body('description').optional().isLength({ max: 1000 }),
+    body('adminPassword').optional().isLength({ max: 100 }),
+    body('accessCode').optional().isLength({ max: 50 }).withMessage('Access code max 50 chars.'),
+  ],
+  asyncHandler(async (req, res) => {
+    const vErr = validationResult(req);
+    if (!vErr.isEmpty()) { req.session.error = vErr.array()[0].msg; return res.redirect('/create'); }
+  const { title, description, adminPassword, allowMultiple, showResults, requireName, endDate, category, pollType, isPublic, accessCode } = req.body;
   let { options } = req.body;
 
   if (!title || !title.trim()) {
@@ -156,8 +205,7 @@ app.post('/create', createLimiter, (req, res) => {
     options = [];
   }
 
-  try {
-    const result = db.createPoll({
+  const result = db.createPoll({
       title: title.trim(),
       description: (description || '').trim() || null,
       options,
@@ -171,6 +219,7 @@ app.post('/create', createLimiter, (req, res) => {
       pollType: pollType || 'choice',
       isPublic: isPublic !== 'private',
       sessionOwner: req.session.id,
+      accessCode: (accessCode || '').trim() || null,
     });
 
     if (!req.session.myPolls) req.session.myPolls = [];
@@ -178,39 +227,49 @@ app.post('/create', createLimiter, (req, res) => {
 
     req.session.success = 'Vote created! Share the link to start collecting votes.';
     res.redirect(`/v/${result.slug}`);
-  } catch (err) {
-    req.session.error = err.message;
-    res.redirect('/create');
+  })
+);
+
+// Verify Access Code
+app.post('/v/:slug/verify-access', asyncHandler(async (req, res) => {
+  const poll = db.getPollBySlug(req.params.slug);
+  if (!poll) return res.status(404).render('error', { title: '404', message: 'Vote not found.', code: 404 });
+  const { accessCode } = req.body;
+  if (!accessCode || !db.verifyAccessCode(poll, accessCode)) {
+    req.session.error = 'Incorrect access code. Please try again.';
+    return res.redirect(`/v/${poll.slug}`);
   }
-});
+  if (!req.session.accessGranted) req.session.accessGranted = [];
+  if (!req.session.accessGranted.includes(poll.id)) req.session.accessGranted.push(poll.id);
+  res.redirect(`/v/${poll.slug}`);
+}));
 
 // Vote page — view & cast vote
-app.get('/v/:slug', (req, res) => {
+app.get('/v/:slug', asyncHandler(async (req, res) => {
   const poll = db.getPollBySlug(req.params.slug);
   if (!poll) return res.status(404).render('error', { title: '404', message: 'Vote not found.', code: 404 });
 
-  const options = db.getOptionsByPoll(poll.id);
+  const options    = db.getOptionsByPoll(poll.id);
+  const isOwner    = req.session.myPolls && req.session.myPolls.includes(poll.id);
+  const needsCode  = !!poll.access_code_hash && !isOwner
+    && !(req.session.accessGranted && req.session.accessGranted.includes(poll.id));
   const voted = db.hasVoted(poll.id, null, req.session.id)
     || (req.session.votedPolls && req.session.votedPolls.includes(poll.id))
-    || (req.signedCookies && req.signedCookies[`voted_${poll.slug}`]);
+    || !!(req.signedCookies && req.signedCookies[`voted_${poll.slug}`]);
 
-  const isExpired = poll.end_date && new Date(poll.end_date) < new Date();
-  const canVote = !poll.is_closed && !isExpired && !voted;
-  const showResults = voted || poll.is_closed || isExpired || poll.show_results_before_end;
+  const isExpired  = poll.end_date && new Date(poll.end_date) < new Date();
+  const canVote    = !needsCode && !poll.is_closed && !isExpired && !voted;
+  const showResults = !needsCode && (voted || poll.is_closed || isExpired || !!poll.show_results_before_end);
 
-  const results = showResults ? db.getPollResults(poll.id) : null;
-  const totalVotes = poll.total_votes;
-  const isOwner = req.session.myPolls && req.session.myPolls.includes(poll.id);
-
-  const catObj = db.CATEGORIES.find(c => c.id === poll.category) || db.CATEGORIES[0];
+  const results    = showResults ? db.getPollResults(poll.id) : null;
+  const catObj     = db.CATEGORIES.find(c => c.id === poll.category) || db.CATEGORIES[0];
 
   res.render('vote', {
     title: `${poll.title} — GVote`,
-    poll, options, results, totalVotes, canVote, voted, showResults, isOwner, isExpired,
-    categoryObj: catObj,
-    categories: db.CATEGORIES,
+    poll, options, results, totalVotes: poll.total_votes, canVote, voted, showResults,
+    isOwner, isExpired, needsCode, categoryObj: catObj, categories: db.CATEGORIES,
   });
-});
+}));
 
 // JSON API for live results
 app.get('/v/:slug/results.json', (req, res) => {
@@ -242,19 +301,21 @@ app.get('/v/:slug/embed', (req, res) => {
 });
 
 // Cast vote
-app.post('/v/:slug/vote', voteLimiter, (req, res) => {
+app.post('/v/:slug/vote', voteLimiter, asyncHandler(async (req, res) => {
   const poll = db.getPollBySlug(req.params.slug);
   if (!poll) return res.status(404).render('error', { title: '404', message: 'Vote not found.', code: 404 });
+
+  // Access code guard
+  const isOwner   = req.session.myPolls && req.session.myPolls.includes(poll.id);
+  const needsCode = !!poll.access_code_hash && !isOwner
+    && !(req.session.accessGranted && req.session.accessGranted.includes(poll.id));
+  if (needsCode) { req.session.error = 'Access code required.'; return res.redirect(`/v/${poll.slug}`); }
 
   const { deviceFingerprint, voterName } = req.body;
   let { optionId } = req.body;
 
-  if (req.session.votedPolls && req.session.votedPolls.includes(poll.id)) {
-    req.session.error = 'You have already voted.';
-    return res.redirect(`/v/${poll.slug}`);
-  }
-
-  if (req.signedCookies && req.signedCookies[`voted_${poll.slug}`]) {
+  if ((req.session.votedPolls && req.session.votedPolls.includes(poll.id))
+      || (req.signedCookies && req.signedCookies[`voted_${poll.slug}`])) {
     req.session.error = 'You have already voted.';
     return res.redirect(`/v/${poll.slug}`);
   }
@@ -266,34 +327,30 @@ app.post('/v/:slug/vote', voteLimiter, (req, res) => {
 
   if (!Array.isArray(optionId)) optionId = [optionId];
 
-  try {
-    db.castVote({
-      pollId: poll.id,
-      optionIds: optionId,
-      voterName: voterName || null,
-      deviceFingerprint: deviceFingerprint || null,
-      sessionId: req.session.id,
-      userAgent: req.get('User-Agent'),
-    });
+  db.castVote({
+    pollId: poll.id,
+    optionIds: optionId,
+    voterName: (voterName || '').trim().substring(0, 100) || null,
+    deviceFingerprint: deviceFingerprint || null,
+    sessionId: req.session.id,
+    userAgent: (req.get('User-Agent') || '').substring(0, 500),
+    ipAddress: getClientIp(req),
+  });
 
-    if (!req.session.votedPolls) req.session.votedPolls = [];
-    req.session.votedPolls.push(poll.id);
+  if (!req.session.votedPolls) req.session.votedPolls = [];
+  req.session.votedPolls.push(poll.id);
 
-    res.cookie(`voted_${poll.slug}`, '1', {
-      maxAge: 365 * 24 * 60 * 60 * 1000,
-      httpOnly: true, signed: true, sameSite: 'lax',
-    });
+  res.cookie(`voted_${poll.slug}`, '1', {
+    maxAge: 365 * 24 * 60 * 60 * 1000,
+    httpOnly: true, signed: true, sameSite: 'lax', secure: IS_PROD,
+  });
 
-    req.session.success = 'Your vote has been recorded!';
-    res.redirect(`/v/${poll.slug}`);
-  } catch (err) {
-    req.session.error = err.message;
-    res.redirect(`/v/${poll.slug}`);
-  }
-});
+  req.session.success = 'Your vote has been recorded!';
+  res.redirect(`/v/${poll.slug}`);
+}));
 
 // Admin: close/reopen/delete/duplicate poll
-app.post('/v/:slug/admin', (req, res) => {
+app.post('/v/:slug/admin', verifyCsrf, asyncHandler(async (req, res) => {
   const poll = db.getPollBySlug(req.params.slug);
   if (!poll) return res.status(404).render('error', { title: '404', message: 'Vote not found.', code: 404 });
 
@@ -321,35 +378,28 @@ app.post('/v/:slug/admin', (req, res) => {
     req.session.success = 'Vote deleted.';
     return res.redirect('/dashboard');
   } else if (action === 'duplicate') {
-    try {
-      const newPoll = db.duplicatePoll(poll.id, req.session.id);
-      if (!req.session.myPolls) req.session.myPolls = [];
-      req.session.myPolls.push(newPoll.id);
-      req.session.success = 'Poll duplicated! Edit it below.';
-      return res.redirect(`/v/${newPoll.slug}`);
-    } catch (err) {
-      req.session.error = err.message;
-    }
+    const newPoll = db.duplicatePoll(poll.id, req.session.id);
+    if (!req.session.myPolls) req.session.myPolls = [];
+    req.session.myPolls.push(newPoll.id);
+    req.session.success = 'Poll duplicated! Edit it below.';
+    return res.redirect(`/v/${newPoll.slug}`);
   }
 
   res.redirect(`/v/${poll.slug}`);
-});
+}));
 
 // Results page (standalone)
-app.get('/v/:slug/results', (req, res) => {
+app.get('/v/:slug/results', asyncHandler(async (req, res) => {
   const poll = db.getPollBySlug(req.params.slug);
   if (!poll) return res.status(404).render('error', { title: '404', message: 'Vote not found.', code: 404 });
-
-  const results = db.getPollResults(poll.id);
-  const totalVotes = poll.total_votes;
-  const voters = db.getPollVoters(poll.id);
-  const isOwner = req.session.myPolls && req.session.myPolls.includes(poll.id);
-
+  const results    = db.getPollResults(poll.id);
+  const voters     = db.getPollVoters(poll.id);
+  const isOwner    = req.session.myPolls && req.session.myPolls.includes(poll.id);
   res.render('results', {
     title: `Results: ${poll.title} — GVote`,
-    poll, results, totalVotes, voters, isOwner,
+    poll, results, totalVotes: poll.total_votes, voters, isOwner,
   });
-});
+}));
 
 // 404
 app.use((req, res) => {
@@ -359,12 +409,12 @@ app.use((req, res) => {
 // Error handler
 app.use((err, req, res, next) => {
   console.error('SERVER ERROR:', err.stack);
-  res.status(500).render('error', { title: '500 - Server Error', message: 'Something went wrong.', code: 500 });
+  if (res.headersSent) return next(err);
+  res.status(500).render('error', { title: '500 - Server Error', message: 'Something went wrong on our end.', code: 500 });
 });
 
-app.listen(PORT, () => {
-  console.log(`\n🗳️  GVote is running at http://localhost:${PORT}`);
-  console.log(`📊 Create a vote: http://localhost:${PORT}/create`);
-  console.log(`🔍 Explore votes: http://localhost:${PORT}/explore`);
-  console.log(`📁 Dashboard:     http://localhost:${PORT}/dashboard\n`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`\nGVote running on http://0.0.0.0:${PORT}`);
+  console.log(`Create: http://localhost:${PORT}/create`);
+  console.log(`Explore: http://localhost:${PORT}/explore\n`);
 });

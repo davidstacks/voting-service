@@ -6,7 +6,8 @@ let db;
 
 function getDb() {
   if (!db) {
-    db = new Database(path.join(__dirname, '..', 'voting.db'));
+    const dbPath = process.env.DB_PATH || path.join(__dirname, '..', 'voting.db');
+    db = new Database(dbPath);
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
   }
@@ -74,6 +75,7 @@ function initialize() {
       device_fingerprint TEXT,
       session_id TEXT,
       user_agent TEXT,
+      ip_address TEXT,
       cast_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (poll_id) REFERENCES polls(id) ON DELETE CASCADE,
       FOREIGN KEY (option_id) REFERENCES options(id) ON DELETE CASCADE
@@ -90,12 +92,16 @@ function initialize() {
     CREATE INDEX IF NOT EXISTS idx_polls_session_owner ON polls(session_owner);
   `);
 
-  // Add new columns if they don't exist (migration for existing DBs)
+  // Migrations for existing DBs
   const cols = d.prepare("PRAGMA table_info(polls)").all().map(c => c.name);
-  if (!cols.includes('category')) d.exec("ALTER TABLE polls ADD COLUMN category TEXT DEFAULT 'general'");
-  if (!cols.includes('poll_type')) d.exec("ALTER TABLE polls ADD COLUMN poll_type TEXT DEFAULT 'choice'");
-  if (!cols.includes('is_public')) d.exec("ALTER TABLE polls ADD COLUMN is_public INTEGER DEFAULT 1");
-  if (!cols.includes('session_owner')) d.exec("ALTER TABLE polls ADD COLUMN session_owner TEXT");
+  if (!cols.includes('category'))         d.exec("ALTER TABLE polls ADD COLUMN category TEXT DEFAULT 'general'");
+  if (!cols.includes('poll_type'))        d.exec("ALTER TABLE polls ADD COLUMN poll_type TEXT DEFAULT 'choice'");
+  if (!cols.includes('is_public'))        d.exec("ALTER TABLE polls ADD COLUMN is_public INTEGER DEFAULT 1");
+  if (!cols.includes('session_owner'))    d.exec("ALTER TABLE polls ADD COLUMN session_owner TEXT");
+  if (!cols.includes('access_code_hash')) d.exec("ALTER TABLE polls ADD COLUMN access_code_hash TEXT");
+
+  const vcols = d.prepare("PRAGMA table_info(votes)").all().map(c => c.name);
+  if (!vcols.includes('ip_address')) d.exec("ALTER TABLE votes ADD COLUMN ip_address TEXT");
 
   console.log('Database initialized');
 }
@@ -122,7 +128,7 @@ function generateUniqueSlug() {
 }
 
 // --- Poll CRUD ---
-function createPoll({ title, description, options, adminPassword, allowMultiple, showResults, maxVotes, endDate, requireName, category, pollType, isPublic, sessionOwner }) {
+function createPoll({ title, description, options, adminPassword, allowMultiple, showResults, maxVotes, endDate, requireName, category, pollType, isPublic, sessionOwner, accessCode }) {
   const d = getDb();
   const id = crypto.randomUUID();
   const slug = generateUniqueSlug();
@@ -130,6 +136,11 @@ function createPoll({ title, description, options, adminPassword, allowMultiple,
   let adminPasswordHash = null;
   if (adminPassword && adminPassword.trim()) {
     adminPasswordHash = crypto.createHash('sha256').update(adminPassword.trim()).digest('hex');
+  }
+
+  let accessCodeHash = null;
+  if (accessCode && accessCode.trim()) {
+    accessCodeHash = crypto.createHash('sha256').update(accessCode.trim().toLowerCase()).digest('hex');
   }
 
   // For yes/no type, override options
@@ -143,9 +154,9 @@ function createPoll({ title, description, options, adminPassword, allowMultiple,
 
   const insertPoll = d.transaction(() => {
     d.prepare(`
-      INSERT INTO polls (id, slug, title, description, admin_password_hash, allow_multiple, show_results_before_end, max_votes_per_person, end_date, require_name, category, poll_type, is_public, session_owner)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, slug, title, description || null, adminPasswordHash, allowMultiple ? 1 : 0, showResults !== false ? 1 : 0, maxVotes || 1, endDate || null, requireName ? 1 : 0, category || 'general', pollType || 'choice', isPublic !== false ? 1 : 0, sessionOwner || null);
+      INSERT INTO polls (id, slug, title, description, admin_password_hash, allow_multiple, show_results_before_end, max_votes_per_person, end_date, require_name, category, poll_type, is_public, session_owner, access_code_hash)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, slug, title, description || null, adminPasswordHash, allowMultiple ? 1 : 0, showResults !== false ? 1 : 0, maxVotes || 1, endDate || null, requireName ? 1 : 0, category || 'general', pollType || 'choice', isPublic !== false ? 1 : 0, sessionOwner || null, accessCodeHash);
 
     const ins = d.prepare('INSERT INTO options (id, poll_id, label, sort_order) VALUES (?, ?, ?, ?)');
     options.forEach((label, i) => {
@@ -218,8 +229,14 @@ function verifyAdminPassword(poll, password) {
   return hash === poll.admin_password_hash;
 }
 
+function verifyAccessCode(poll, code) {
+  if (!poll.access_code_hash) return true; // no code required
+  const hash = crypto.createHash('sha256').update((code || '').trim().toLowerCase()).digest('hex');
+  return hash === poll.access_code_hash;
+}
+
 // --- Voting ---
-function castVote({ pollId, optionIds, voterName, deviceFingerprint, sessionId, userAgent }) {
+function castVote({ pollId, optionIds, voterName, deviceFingerprint, sessionId, userAgent, ipAddress }) {
   const d = getDb();
   const poll = d.prepare('SELECT * FROM polls WHERE id = ?').get(pollId);
 
@@ -262,11 +279,11 @@ function castVote({ pollId, optionIds, voterName, deviceFingerprint, sessionId, 
       }
     }
 
-    const insVote = d.prepare('INSERT INTO votes (id, poll_id, option_id, voter_name, device_fingerprint, session_id, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const insVote = d.prepare('INSERT INTO votes (id, poll_id, option_id, voter_name, device_fingerprint, session_id, user_agent, ip_address) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
     const updCount = d.prepare('UPDATE options SET vote_count = vote_count + 1 WHERE id = ?');
 
     for (const oid of optionIds) {
-      insVote.run(crypto.randomUUID(), pollId, oid, voterName || null, deviceFingerprint || null, sessionId || null, userAgent || null);
+      insVote.run(crypto.randomUUID(), pollId, oid, voterName || null, deviceFingerprint || null, sessionId || null, userAgent || null, ipAddress || null);
       updCount.run(oid);
     }
 
@@ -389,7 +406,7 @@ function getEndingSoonPolls(limit = 6) {
 module.exports = {
   initialize, getDb, createPoll, duplicatePoll, getPollBySlug, getPollById,
   getOptionsByPoll, getPollResults, closePoll, reopenPoll,
-  deletePoll, verifyAdminPassword, castVote, hasVoted,
+  deletePoll, verifyAdminPassword, verifyAccessCode, castVote, hasVoted,
   getRecentPolls, getMyPolls, getMyPollsByIds, searchPolls,
   getPollVoters, getPlatformStats, getPopularPolls, getEndingSoonPolls,
   CATEGORIES, POLL_TYPES,

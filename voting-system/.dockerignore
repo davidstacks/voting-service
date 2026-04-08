@@ -1,0 +1,11 @@
+node_modules
+npm-debug.log*
+.env
+.env.*
+voting.db
+*.db
+*.db-shm
+*.db-wal
+.DS_Store
+.git
+.gitignore

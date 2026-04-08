@@ -66,6 +66,7 @@
 
   <% if (canVote) { %>
     <form id="vote-form" method="POST" action="/v/<%= poll.slug %>/vote" target="_top">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
       <input type="hidden" name="deviceFingerprint" id="deviceFingerprint" value="">
       <div class="options-list">
         <% options.forEach(o => { %>

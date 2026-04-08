@@ -14,6 +14,7 @@
     <p class="card-subtitle">Set up your poll in seconds. No account needed!</p>
 
     <form id="create-form" method="POST" action="/create">
+      <input type="hidden" name="_csrf" value="<%= csrf %>">
 
       <!-- Poll Type Selector -->
       <div class="form-group">
@@ -98,6 +99,12 @@
       <div class="form-group">
         <label for="adminPassword">Admin Password <span class="optional">(optional — to manage vote from other devices)</span></label>
         <input type="password" id="adminPassword" name="adminPassword" placeholder="Set a password to close/delete the vote" maxlength="100">
+      </div>
+
+      <div class="form-group">
+        <label for="accessCode">Access Code <span class="optional">(optional — only people with this code can vote)</span></label>
+        <input type="text" id="accessCode" name="accessCode" placeholder="e.g. CLASS2024 — leave blank for public voting" maxlength="50" autocomplete="off">
+        <p style="font-size:0.75rem;color:var(--text-dim);margin-top:0.3rem;"><i class="fas fa-shield-halved"></i> If set, voters must enter this code before they can vote. You can share it privately with your intended voters.</p>
       </div>
 
       <button type="submit" class="btn btn-primary btn-lg btn-full">
