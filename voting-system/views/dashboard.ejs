@@ -43,12 +43,12 @@
     <div class="poll-list">
       <% myPolls.forEach(p => { %>
         <% const cat = categories.find(c => c.id === p.category) || categories[0]; %>
-        <a href="/v/<%= p.slug %>" class="poll-list-item">
+        <div class="poll-list-item">
           <div class="poll-list-icon">
             <i class="fas <%= cat.icon %>"></i>
           </div>
           <div class="poll-list-info">
-            <div class="poll-list-title"><%= p.title %></div>
+            <div class="poll-list-title"><a href="/v/<%= p.slug %>"><%= p.title %></a></div>
             <div class="poll-list-meta">
               <span class="tag tag-category"><i class="fas <%= cat.icon %>"></i> <%= cat.label %></span>
               <span><i class="fas fa-users"></i> <%= p.total_votes %> votes</span>
@@ -64,7 +64,15 @@
               <span class="badge badge-open"><i class="fas fa-circle"></i> Active</span>
             <% } %>
           </div>
-        </a>
+          <div class="poll-list-actions">
+            <a href="/v/<%= p.slug %>" class="btn btn-outline btn-xs" title="Open"><i class="fas fa-arrow-up-right-from-square"></i></a>
+            <a href="/v/<%= p.slug %>/results" class="btn btn-outline btn-xs" title="Results"><i class="fas fa-chart-bar"></i></a>
+            <a href="/v/<%= p.slug %>/export.csv" class="btn btn-outline btn-xs" title="Export CSV"><i class="fas fa-download"></i></a>
+            <button class="btn btn-outline btn-xs dash-copy-btn" data-url="/v/<%= p.slug %>" title="Copy link">
+              <i class="fas fa-copy"></i>
+            </button>
+          </div>
+        </div>
       <% }); %>
     </div>
   <% } %>

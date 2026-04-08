@@ -1,4 +1,6 @@
 <%- include('partials/head') %>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/canvas-confetti/1.9.3/confetti.browser.min.js" defer></script>
 <%- include('partials/nav') %>
 
 <% if (typeof success !== 'undefined' && success) { %>
@@ -24,10 +26,15 @@
     <% } %>
     <div class="poll-meta">
       <span><i class="fas fa-users"></i> <%= totalVotes %> vote<%= totalVotes !== 1 ? 's' : '' %></span>
+      <% if (poll.vote_cap) { %>
+        <span><i class="fas fa-flag-checkered"></i> Goal: <%= poll.vote_cap %></span>
+      <% } %>
       <% if (poll.is_closed) { %>
         <span class="badge badge-closed"><i class="fas fa-lock"></i> Closed</span>
       <% } else if (isExpired) { %>
         <span class="badge badge-closed"><i class="fas fa-clock"></i> Ended</span>
+      <% } else if (isScheduled) { %>
+        <span class="badge badge-scheduled"><i class="fas fa-calendar-clock"></i> Scheduled</span>
       <% } else { %>
         <span class="badge badge-open"><i class="fas fa-circle"></i> Active</span>
       <% } %>
@@ -36,6 +43,32 @@
       <% } %>
     </div>
   </div>
+
+  <!-- Scheduled Notice -->
+  <% if (isScheduled && poll.start_date) { %>
+    <div class="schedule-notice">
+      <i class="fas fa-calendar-clock"></i>
+      <div>
+        <strong>This poll hasn't started yet</strong>
+        <span>Voting opens on <strong><%= new Date(poll.start_date).toLocaleString() %></strong></span>
+      </div>
+      <span class="schedule-countdown" data-start="<%= poll.start_date %>"></span>
+    </div>
+  <% } %>
+
+  <!-- Vote Cap Progress Bar -->
+  <% if (poll.vote_cap && poll.vote_cap > 0) { %>
+    <% const capPct = Math.min(100, (totalVotes / poll.vote_cap) * 100).toFixed(1); %>
+    <div class="vote-goal-wrap">
+      <div class="vote-goal-label">
+        <span><i class="fas fa-bullseye"></i> Vote Goal Progress</span>
+        <span><strong><%= totalVotes %></strong> / <%= poll.vote_cap %> (<%= capPct %>%)</span>
+      </div>
+      <div class="vote-goal-bar-bg">
+        <div class="vote-goal-bar" style="width: <%= capPct %>%"></div>
+      </div>
+    </div>
+  <% } %>
 
   <!-- Share & Embed Tabs -->
   <div class="share-card card">
@@ -134,7 +167,7 @@
 
   <% if (voted) { %>
     <div class="voted-banner">
-      <i class="fas fa-check-circle"></i> You have voted!
+      <i class="fas fa-check-circle"></i> You have voted! 🎉
     </div>
   <% } %>
 
@@ -144,9 +177,16 @@
       <div class="results-header">
         <h3><i class="fas fa-chart-bar"></i> Results</h3>
         <div class="results-actions">
+          <button class="btn btn-outline btn-sm chart-toggle-btn" id="chart-toggle" type="button" title="Toggle chart type">
+            <i class="fas fa-chart-pie"></i> Chart
+          </button>
           <span class="live-indicator" id="live-dot"><i class="fas fa-circle"></i> Live</span>
           <a href="/v/<%= poll.slug %>/results" class="btn btn-outline btn-sm"><i class="fas fa-expand"></i> Full</a>
         </div>
+      </div>
+      <!-- Chart canvas (hidden by default, shown on toggle) -->
+      <div class="chart-container" id="chart-container" style="display:none;">
+        <canvas id="resultsChart" height="260"></canvas>
       </div>
       <div class="results-list" id="results-list">
         <% results.forEach(r => { %>
@@ -164,6 +204,70 @@
         <% }); %>
       </div>
       <div class="total-votes-line"><i class="fas fa-users"></i> <span id="total-votes-num"><%= totalVotes %></span> total votes</div>
+    </div>
+
+    <!-- Social Share -->
+    <div class="social-share-row">
+      <span class="social-share-label"><i class="fas fa-share-nodes"></i> Share</span>
+      <a class="social-btn social-btn-twitter" href="https://twitter.com/intent/tweet?text=<%= encodeURIComponent('Vote: ' + poll.title) %>&url=<%= encodeURIComponent('https://' + (process.env.BASE_URL || 'localhost:3000') + '/v/' + poll.slug) %>" target="_blank" rel="noopener noreferrer">
+        <i class="fab fa-x-twitter"></i> X / Twitter
+      </a>
+      <a class="social-btn social-btn-whatsapp" href="https://wa.me/?text=<%= encodeURIComponent('Vote: ' + poll.title + ' — https://' + (process.env.BASE_URL || 'localhost:3000') + '/v/' + poll.slug) %>" target="_blank" rel="noopener noreferrer">
+        <i class="fab fa-whatsapp"></i> WhatsApp
+      </a>
+      <a class="social-btn social-btn-telegram" href="https://t.me/share/url?url=<%= encodeURIComponent('https://' + (process.env.BASE_URL || 'localhost:3000') + '/v/' + poll.slug) %>&text=<%= encodeURIComponent('Vote: ' + poll.title) %>" target="_blank" rel="noopener noreferrer">
+        <i class="fab fa-telegram"></i> Telegram
+      </a>
+      <button class="social-btn social-btn-copy" id="social-copy-btn" type="button">
+        <i class="fas fa-link"></i> Copy Link
+      </button>
+    </div>
+
+    <!-- Chart.js init data -->
+    <script id="chart-data" type="application/json">
+    {
+      "labels": <%- JSON.stringify(results.map(r => r.label)) %>,
+      "values": <%- JSON.stringify(results.map(r => r.vote_count)) %>
+    }
+    </script>
+  <% } %>
+
+  <!-- Comments Section -->
+  <% if (!needsCode) { %>
+    <div class="card comments-section" id="comments-section">
+      <h3 class="comments-title"><i class="fas fa-comments"></i> Discussion <span class="comments-count" id="comments-count">(<%= comments.length %>)</span></h3>
+
+      <!-- Comment Form -->
+      <form class="comment-form" id="comment-form" data-slug="<%= poll.slug %>">
+        <div class="comment-form-row">
+          <input type="text" id="comment-author" placeholder="Your name (optional)" maxlength="100" class="comment-name-input">
+          <span class="comment-divider"></span>
+          <textarea id="comment-body" placeholder="Add a comment..." maxlength="1000" rows="2" required class="comment-textarea"></textarea>
+        </div>
+        <button type="submit" class="btn btn-outline btn-sm comment-submit-btn">
+          <i class="fas fa-paper-plane"></i> Post Comment
+        </button>
+      </form>
+
+      <!-- Comments List -->
+      <div class="comments-list" id="comments-list">
+        <% if (comments.length === 0) { %>
+          <p class="comments-empty" id="comments-empty">No comments yet. Be the first!</p>
+        <% } else { %>
+          <% comments.forEach(c => { %>
+            <div class="comment-item">
+              <div class="comment-avatar"><i class="fas fa-user-circle"></i></div>
+              <div class="comment-body-wrap">
+                <div class="comment-meta">
+                  <span class="comment-author"><%= c.author_name || 'Anonymous' %></span>
+                  <span class="comment-time"><%= new Date(c.created_at).toLocaleString() %></span>
+                </div>
+                <div class="comment-text"><%= c.body %></div>
+              </div>
+            </div>
+          <% }); %>
+        <% } %>
+      </div>
     </div>
   <% } %>
 

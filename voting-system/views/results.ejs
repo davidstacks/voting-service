@@ -1,4 +1,5 @@
 <%- include('partials/head') %>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" defer></script>
 <%- include('partials/nav') %>
 
 <div class="container" style="max-width: 720px; margin-top: 2rem;">
@@ -10,6 +11,7 @@
     <div class="poll-meta">
       <span><i class="fas fa-users"></i> <%= totalVotes %> vote<%= totalVotes !== 1 ? 's' : '' %></span>
       <a href="/v/<%= poll.slug %>" class="btn btn-outline btn-sm"><i class="fas fa-arrow-left"></i> Back to Vote</a>
+      <a href="/v/<%= poll.slug %>/export.csv" class="btn btn-outline btn-sm"><i class="fas fa-download"></i> Export CSV</a>
     </div>
   </div>
 
@@ -17,7 +19,16 @@
   <div class="card results-card" id="results-card" data-slug="<%= poll.slug %>">
     <div class="results-header">
       <h3><i class="fas fa-chart-bar"></i> Results</h3>
-      <span class="live-indicator" id="live-dot"><i class="fas fa-circle"></i> Live</span>
+      <div class="results-actions">
+        <button class="btn btn-outline btn-sm chart-toggle-btn" id="chart-toggle" type="button">
+          <i class="fas fa-chart-pie"></i> Chart
+        </button>
+        <span class="live-indicator" id="live-dot"><i class="fas fa-circle"></i> Live</span>
+      </div>
+    </div>
+    <!-- Chart -->
+    <div class="chart-container" id="chart-container" style="display:none;">
+      <canvas id="resultsChart" height="280"></canvas>
     </div>
     <div class="results-list" id="results-list">
       <% results.forEach((r, i) => { %>
@@ -38,6 +49,31 @@
       <% }); %>
     </div>
     <div class="total-votes-line"><i class="fas fa-users"></i> <span id="total-votes-num"><%= totalVotes %></span> total votes</div>
+  </div>
+
+  <!-- Chart.js init data -->
+  <script id="chart-data" type="application/json">
+  {
+    "labels": <%- JSON.stringify(results.map(r => r.label)) %>,
+    "values": <%- JSON.stringify(results.map(r => r.vote_count)) %>
+  }
+  </script>
+
+  <!-- Social Share -->
+  <div class="social-share-row">
+    <span class="social-share-label"><i class="fas fa-share-nodes"></i> Share</span>
+    <a class="social-btn social-btn-twitter" href="https://twitter.com/intent/tweet?text=<%= encodeURIComponent('Vote results: ' + poll.title) %>&url=<%= encodeURIComponent('https://' + (process.env.BASE_URL || 'localhost:3000') + '/v/' + poll.slug + '/results') %>" target="_blank" rel="noopener noreferrer">
+      <i class="fab fa-x-twitter"></i> X / Twitter
+    </a>
+    <a class="social-btn social-btn-whatsapp" href="https://wa.me/?text=<%= encodeURIComponent('Vote results: ' + poll.title + ' — https://' + (process.env.BASE_URL || 'localhost:3000') + '/v/' + poll.slug + '/results') %>" target="_blank" rel="noopener noreferrer">
+      <i class="fab fa-whatsapp"></i> WhatsApp
+    </a>
+    <a class="social-btn social-btn-telegram" href="https://t.me/share/url?url=<%= encodeURIComponent('https://' + (process.env.BASE_URL || 'localhost:3000') + '/v/' + poll.slug + '/results') %>&text=<%= encodeURIComponent('Vote results: ' + poll.title) %>" target="_blank" rel="noopener noreferrer">
+      <i class="fab fa-telegram"></i> Telegram
+    </a>
+    <button class="social-btn social-btn-copy" id="social-copy-btn" type="button">
+      <i class="fas fa-link"></i> Copy Link
+    </button>
   </div>
 
   <% if (isOwner && voters.length > 0) { %>
@@ -67,6 +103,63 @@
       </div>
     </div>
   <% } %>
+
+  <!-- Comments Section -->
+  <div class="card comments-section" id="comments-section">
+    <h3 class="comments-title"><i class="fas fa-comments"></i> Discussion <span class="comments-count" id="comments-count">(<%= comments.length %>)</span></h3>
+    <form class="comment-form" id="comment-form" data-slug="<%= poll.slug %>">
+      <div class="comment-form-row">
+        <input type="text" id="comment-author" placeholder="Your name (optional)" maxlength="100" class="comment-name-input">
+        <span class="comment-divider"></span>
+        <textarea id="comment-body" placeholder="Add a comment..." maxlength="1000" rows="2" required class="comment-textarea"></textarea>
+      </div>
+      <button type="submit" class="btn btn-outline btn-sm comment-submit-btn">
+        <i class="fas fa-paper-plane"></i> Post Comment
+      </button>
+    </form>
+    <div class="comments-list" id="comments-list">
+      <% if (comments.length === 0) { %>
+        <p class="comments-empty" id="comments-empty">No comments yet. Be the first!</p>
+      <% } else { %>
+        <% comments.forEach(c => { %>
+          <div class="comment-item">
+            <div class="comment-avatar"><i class="fas fa-user-circle"></i></div>
+            <div class="comment-body-wrap">
+              <div class="comment-meta">
+                <span class="comment-author"><%= c.author_name || 'Anonymous' %></span>
+                <span class="comment-time"><%= new Date(c.created_at).toLocaleString() %></span>
+              </div>
+              <div class="comment-text"><%= c.body %></div>
+            </div>
+          </div>
+        <% }); %>
+      <% } %>
+    </div>
+  </div>
+
+  <!-- REST API Info -->
+  <div class="card api-card">
+    <h3><i class="fas fa-code"></i> REST API</h3>
+    <p class="card-subtitle">Access poll results programmatically via the public REST API.</p>
+    <div class="api-endpoints">
+      <div class="api-endpoint">
+        <span class="api-method">GET</span>
+        <code>/api/polls/<%= poll.slug %></code>
+        <span class="api-desc">Poll details + results (JSON)</span>
+      </div>
+      <div class="api-endpoint">
+        <span class="api-method">GET</span>
+        <code>/v/<%= poll.slug %>/results.json</code>
+        <span class="api-desc">Live results (JSON)</span>
+      </div>
+      <div class="api-endpoint">
+        <span class="api-method">GET</span>
+        <code>/v/<%= poll.slug %>/export.csv</code>
+        <span class="api-desc">Download as CSV</span>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <%- include('partials/site-footer') %>

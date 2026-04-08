@@ -25,7 +25,8 @@ app.use(helmet({
       defaultSrc:     ["'self'"],
       styleSrc:       ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://cdnjs.cloudflare.com"],
       fontSrc:        ["'self'", "https://fonts.gstatic.com", "https://cdnjs.cloudflare.com"],
-      scriptSrc:      ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com"],
+      scriptSrc:      ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com", "https://cdn.jsdelivr.net"],
+      scriptSrcAttr:  ["'unsafe-inline'"],
       imgSrc:         ["'self'", "data:", "https:"],
       frameSrc:       ["'self'"],
       frameAncestors: ["*"],
@@ -181,11 +182,13 @@ app.post('/create', createLimiter, verifyCsrf,
     body('description').optional().isLength({ max: 1000 }),
     body('adminPassword').optional().isLength({ max: 100 }),
     body('accessCode').optional().isLength({ max: 50 }).withMessage('Access code max 50 chars.'),
+    body('voteCap').optional({ checkFalsy: true }).isInt({ min: 1, max: 1000000 }).withMessage('Vote cap must be a number between 1 and 1,000,000.'),
+    body('webhookUrl').optional({ checkFalsy: true }).isURL({ protocols: ['https'], require_protocol: true }).withMessage('Webhook URL must be a valid HTTPS URL.'),
   ],
   asyncHandler(async (req, res) => {
     const vErr = validationResult(req);
     if (!vErr.isEmpty()) { req.session.error = vErr.array()[0].msg; return res.redirect('/create'); }
-  const { title, description, adminPassword, allowMultiple, showResults, requireName, endDate, category, pollType, isPublic, accessCode } = req.body;
+  const { title, description, adminPassword, allowMultiple, showResults, requireName, endDate, startDate, voteCap, webhookUrl, category, pollType, isPublic, accessCode } = req.body;
   let { options } = req.body;
 
   if (!title || !title.trim()) {
@@ -223,6 +226,9 @@ app.post('/create', createLimiter, verifyCsrf,
       showResults: showResults !== 'hide',
       maxVotes: 1,
       endDate: endDate || null,
+      startDate: startDate || null,
+      voteCap: voteCap || null,
+      webhookUrl: (webhookUrl || '').trim() || null,
       requireName: !!requireName,
       category: category || 'general',
       pollType: pollType || 'choice',
@@ -266,17 +272,20 @@ app.get('/v/:slug', asyncHandler(async (req, res) => {
     || (req.session.votedPolls && req.session.votedPolls.includes(poll.id))
     || !!(req.signedCookies && req.signedCookies[`voted_${poll.slug}`]);
 
-  const isExpired  = poll.end_date && new Date(poll.end_date) < new Date();
-  const canVote    = !needsCode && !poll.is_closed && !isExpired && !voted;
-  const showResults = !needsCode && (voted || poll.is_closed || isExpired || !!poll.show_results_before_end);
+  const isExpired    = poll.end_date && new Date(poll.end_date) < new Date();
+  const isScheduled  = !isOwner && poll.start_date && new Date(poll.start_date) > new Date();
+  const canVote      = !needsCode && !poll.is_closed && !isExpired && !voted && !isScheduled;
+  const showResults  = !needsCode && !isScheduled && (voted || poll.is_closed || isExpired || !!poll.show_results_before_end);
 
-  const results    = showResults ? db.getPollResults(poll.id) : null;
-  const catObj     = db.CATEGORIES.find(c => c.id === poll.category) || db.CATEGORIES[0];
+  const results   = showResults ? db.getPollResults(poll.id) : null;
+  const comments  = !needsCode ? db.getComments(poll.id) : [];
+  const catObj    = db.CATEGORIES.find(c => c.id === poll.category) || db.CATEGORIES[0];
 
   res.render('vote', {
     title: `${poll.title} — GVote`,
     poll, options, results, totalVotes: poll.total_votes, canVote, voted, showResults,
-    isOwner, isExpired, needsCode, categoryObj: catObj, categories: db.CATEGORIES,
+    isOwner, isExpired, needsCode, isScheduled, comments,
+    categoryObj: catObj, categories: db.CATEGORIES,
   });
 }));
 
@@ -403,11 +412,72 @@ app.get('/v/:slug/results', asyncHandler(async (req, res) => {
   if (!poll) return sendError(res, 404, 'Vote not found.');
   const results    = db.getPollResults(poll.id);
   const voters     = db.getPollVoters(poll.id);
+  const comments   = db.getComments(poll.id);
   const isOwner    = req.session.myPolls && req.session.myPolls.includes(poll.id);
   res.render('results', {
     title: `Results: ${poll.title} — GVote`,
-    poll, results, totalVotes: poll.total_votes, voters, isOwner,
+    poll, results, totalVotes: poll.total_votes, voters, isOwner, comments,
   });
+}));
+
+// Export results as CSV
+app.get('/v/:slug/export.csv', asyncHandler(async (req, res) => {
+  const poll = db.getPollBySlug(req.params.slug);
+  if (!poll) return sendError(res, 404, 'Vote not found.');
+  const results = db.getPollResults(poll.id);
+  const rows = [['Option', 'Votes', 'Percentage']];
+  results.forEach(r => {
+    const pct = poll.total_votes > 0 ? ((r.vote_count / poll.total_votes) * 100).toFixed(1) : '0.0';
+    rows.push([`"${r.label.replace(/"/g, '""')}"`, r.vote_count, `${pct}%`]);
+  });
+  rows.push(['', '', '']);
+  rows.push(['"Total"', poll.total_votes, '100%']);
+  const csv = rows.map(row => row.join(',')).join('\r\n');
+  // Sanitize filename
+  const filename = `gvote-${poll.slug}.csv`;
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(csv);
+}));
+
+// REST API — list public polls
+const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false });
+
+app.get('/api/polls', apiLimiter, asyncHandler(async (req, res) => {
+  const { category, sort, page } = req.query;
+  const result = db.searchPolls({ query: '', category: category || 'all', sort: sort || 'newest', page: parseInt(page) || 1, limit: 20 });
+  res.json({
+    polls: result.polls,
+    page: result.page,
+    totalPages: result.totalPages,
+    total: result.total,
+  });
+}));
+
+// REST API — single poll with results
+app.get('/api/polls/:slug', apiLimiter, asyncHandler(async (req, res) => {
+  const poll = db.getPollBySlug(req.params.slug);
+  if (!poll) return res.status(404).json({ error: 'Not found' });
+  if (!poll.is_public) return res.status(403).json({ error: 'This poll is private' });
+  const results = db.getPollResults(poll.id);
+  const { admin_password_hash, access_code_hash, session_owner, ...safePoll } = poll;
+  res.json({ poll: safePoll, results, totalVotes: poll.total_votes });
+}));
+
+// Post a comment
+const commentLimiter = rateLimit({ windowMs: 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false });
+
+app.post('/v/:slug/comment', commentLimiter, asyncHandler(async (req, res) => {
+  const poll = db.getPollBySlug(req.params.slug);
+  if (!poll) return res.status(404).json({ error: 'Not found' });
+
+  const body = (req.body.body || '').trim();
+  if (!body || body.length < 1) return res.status(400).json({ error: 'Comment cannot be empty.' });
+  if (body.length > 1000) return res.status(400).json({ error: 'Comment too long (max 1000 chars).' });
+
+  const authorName = (req.body.authorName || '').trim().substring(0, 100) || null;
+  const result = db.addComment(poll.id, authorName, body);
+  res.json({ success: true, id: result.id });
 }));
 
 // 404

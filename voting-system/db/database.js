@@ -1,6 +1,7 @@
 const Database = require('better-sqlite3');
 const crypto = require('crypto');
 const path = require('path');
+const https = require('https');
 
 let db;
 
@@ -81,6 +82,15 @@ function initialize() {
       FOREIGN KEY (option_id) REFERENCES options(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS comments (
+      id TEXT PRIMARY KEY,
+      poll_id TEXT NOT NULL,
+      author_name TEXT,
+      body TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (poll_id) REFERENCES polls(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_votes_poll ON votes(poll_id);
     CREATE INDEX IF NOT EXISTS idx_votes_fp ON votes(poll_id, device_fingerprint);
     CREATE INDEX IF NOT EXISTS idx_votes_session ON votes(poll_id, session_id);
@@ -90,6 +100,7 @@ function initialize() {
     CREATE INDEX IF NOT EXISTS idx_polls_type ON polls(poll_type);
     CREATE INDEX IF NOT EXISTS idx_polls_public ON polls(is_public, is_closed);
     CREATE INDEX IF NOT EXISTS idx_polls_session_owner ON polls(session_owner);
+    CREATE INDEX IF NOT EXISTS idx_comments_poll ON comments(poll_id);
   `);
 
   // Migrations for existing DBs
@@ -99,6 +110,9 @@ function initialize() {
   if (!cols.includes('is_public'))        d.exec("ALTER TABLE polls ADD COLUMN is_public INTEGER DEFAULT 1");
   if (!cols.includes('session_owner'))    d.exec("ALTER TABLE polls ADD COLUMN session_owner TEXT");
   if (!cols.includes('access_code_hash')) d.exec("ALTER TABLE polls ADD COLUMN access_code_hash TEXT");
+  if (!cols.includes('start_date'))        d.exec("ALTER TABLE polls ADD COLUMN start_date TEXT");
+  if (!cols.includes('vote_cap'))          d.exec("ALTER TABLE polls ADD COLUMN vote_cap INTEGER");
+  if (!cols.includes('webhook_url'))       d.exec("ALTER TABLE polls ADD COLUMN webhook_url TEXT");
 
   const vcols = d.prepare("PRAGMA table_info(votes)").all().map(c => c.name);
   if (!vcols.includes('ip_address')) d.exec("ALTER TABLE votes ADD COLUMN ip_address TEXT");
@@ -128,7 +142,33 @@ function generateUniqueSlug() {
 }
 
 // --- Poll CRUD ---
-function createPoll({ title, description, options, adminPassword, allowMultiple, showResults, maxVotes, endDate, requireName, category, pollType, isPublic, sessionOwner, accessCode }) {
+// Fire-and-forget HTTPS webhook (POST)
+function fireWebhook(url, payload) {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:') return;
+    const body = JSON.stringify(payload);
+    const opts = {
+      method: 'POST',
+      hostname: u.hostname,
+      port: u.port || 443,
+      path: u.pathname + u.search,
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+        'User-Agent': 'GVote-Webhook/1.0',
+      },
+      timeout: 5000,
+    };
+    const req = https.request(opts, (r) => { r.resume(); });
+    req.on('error', () => {});
+    req.on('timeout', () => { req.destroy(); });
+    req.write(body);
+    req.end();
+  } catch (_) {}
+}
+
+function createPoll({ title, description, options, adminPassword, allowMultiple, showResults, maxVotes, endDate, requireName, category, pollType, isPublic, sessionOwner, accessCode, startDate, voteCap, webhookUrl }) {
   const d = getDb();
   const id = crypto.randomUUID();
   const slug = generateUniqueSlug();
@@ -154,9 +194,9 @@ function createPoll({ title, description, options, adminPassword, allowMultiple,
 
   const insertPoll = d.transaction(() => {
     d.prepare(`
-      INSERT INTO polls (id, slug, title, description, admin_password_hash, allow_multiple, show_results_before_end, max_votes_per_person, end_date, require_name, category, poll_type, is_public, session_owner, access_code_hash)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, slug, title, description || null, adminPasswordHash, allowMultiple ? 1 : 0, showResults !== false ? 1 : 0, maxVotes || 1, endDate || null, requireName ? 1 : 0, category || 'general', pollType || 'choice', isPublic !== false ? 1 : 0, sessionOwner || null, accessCodeHash);
+      INSERT INTO polls (id, slug, title, description, admin_password_hash, allow_multiple, show_results_before_end, max_votes_per_person, end_date, require_name, category, poll_type, is_public, session_owner, access_code_hash, start_date, vote_cap, webhook_url)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, slug, title, description || null, adminPasswordHash, allowMultiple ? 1 : 0, showResults !== false ? 1 : 0, maxVotes || 1, endDate || null, requireName ? 1 : 0, category || 'general', pollType || 'choice', isPublic !== false ? 1 : 0, sessionOwner || null, accessCodeHash, startDate || null, (voteCap && parseInt(voteCap, 10) > 0) ? parseInt(voteCap, 10) : null, (webhookUrl || '').trim() || null);
 
     const ins = d.prepare('INSERT INTO options (id, poll_id, label, sort_order) VALUES (?, ?, ?, ?)');
     options.forEach((label, i) => {
@@ -291,6 +331,26 @@ function castVote({ pollId, optionIds, voterName, deviceFingerprint, sessionId, 
   });
 
   doVote();
+
+  // Auto-close if vote cap reached
+  const updated = d.prepare('SELECT total_votes, vote_cap, webhook_url, title, slug FROM polls WHERE id = ?').get(pollId);
+  if (updated.vote_cap && updated.total_votes >= updated.vote_cap) {
+    closePoll(pollId);
+  }
+
+  // Fire webhook (fire and forget)
+  if (updated.webhook_url) {
+    fireWebhook(updated.webhook_url, {
+      event: 'vote_cast',
+      poll_id: pollId,
+      poll_title: updated.title,
+      poll_slug: updated.slug,
+      total_votes: updated.total_votes,
+      vote_cap: updated.vote_cap || null,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
   return { success: true };
 }
 
@@ -375,6 +435,24 @@ function searchPolls({ query, category, sort, page = 1, limit = 12 }) {
   return { polls, total, page, totalPages: Math.ceil(total / limit) };
 }
 
+// --- Comments ---
+function addComment(pollId, authorName, body) {
+  const d = getDb();
+  const id = crypto.randomUUID();
+  d.prepare('INSERT INTO comments (id, poll_id, author_name, body) VALUES (?, ?, ?, ?)').run(
+    id, pollId,
+    (authorName || '').trim().substring(0, 100) || null,
+    body.trim().substring(0, 1000)
+  );
+  return { id };
+}
+
+function getComments(pollId) {
+  return getDb().prepare(
+    'SELECT id, author_name, body, created_at FROM comments WHERE poll_id = ? ORDER BY created_at DESC LIMIT 100'
+  ).all(pollId);
+}
+
 function getPollVoters(pollId) {
   return getDb().prepare(`
     SELECT v.voter_name, v.cast_at, o.label as option_label,
@@ -409,5 +487,6 @@ module.exports = {
   deletePoll, verifyAdminPassword, verifyAccessCode, castVote, hasVoted,
   getRecentPolls, getMyPolls, getMyPollsByIds, searchPolls,
   getPollVoters, getPlatformStats, getPopularPolls, getEndingSoonPolls,
+  addComment, getComments,
   CATEGORIES, POLL_TYPES,
 };

@@ -574,3 +574,108 @@ td code { background: var(--bg-input); padding: 0.15rem 0.4rem; border-radius: 4
   .stat-mini-num { font-size: 1.3rem; }
   .features-row { grid-template-columns: 1fr; }
 }
+
+/* ===== Schedule Notice ===== */
+.schedule-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.9rem;
+  padding: 1.1rem 1.35rem;
+  background: rgba(124,58,237,0.08);
+  border: 1px solid rgba(124,58,237,0.3);
+  border-radius: var(--radius-sm);
+  margin-bottom: 1.25rem;
+  font-size: 0.88rem;
+}
+.schedule-notice > i { color: var(--primary-light); font-size: 1.25rem; margin-top: 0.1rem; flex-shrink: 0; }
+.schedule-notice div { display: flex; flex-direction: column; gap: 0.2rem; }
+.schedule-notice strong { color: var(--text); font-weight: 700; }
+.schedule-notice span { color: var(--text-muted); }
+.schedule-countdown { font-size: 0.78rem; color: var(--primary-light); font-weight: 600; margin-left: auto; white-space: nowrap; padding-left: 1rem; }
+
+.badge-scheduled { background: rgba(124,58,237,0.15); color: var(--primary-light); border: 1px solid rgba(124,58,237,0.3); padding: 0.2rem 0.55rem; border-radius: 100px; font-size: 0.72rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.3rem; }
+
+/* ===== Vote Goal Progress Bar ===== */
+.vote-goal-wrap { margin-bottom: 1.25rem; padding: 0.9rem 1.2rem; background: var(--bg-card2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.vote-goal-label { display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem; }
+.vote-goal-label strong { color: var(--text); }
+.vote-goal-label i { color: var(--primary-light); }
+.vote-goal-bar-bg { width: 100%; height: 10px; background: rgba(255,255,255,0.04); border-radius: 100px; overflow: hidden; }
+.vote-goal-bar { height: 100%; background: linear-gradient(90deg, var(--primary), var(--accent)); border-radius: 100px; transition: width 0.8s cubic-bezier(0.4,0,0.2,1); min-width: 3px; }
+
+/* ===== Chart Container ===== */
+.chart-container { padding: 0.5rem 0.75rem 1rem; }
+.chart-toggle-btn { font-size: 0.72rem; }
+
+/* ===== Social Share Row ===== */
+.social-share-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+  padding: 0.75rem 1.1rem;
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.social-share-label { font-size: 0.78rem; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-right: 0.25rem; display: flex; align-items: center; gap: 0.35rem; }
+.social-btn {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.38rem 0.85rem;
+  border-radius: 100px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border: 1px solid var(--border-light);
+  cursor: pointer;
+  transition: all var(--transition);
+  background: var(--bg-input);
+  color: var(--text-muted);
+  text-decoration: none;
+}
+.social-btn:hover { opacity: 1; transform: translateY(-1px); border-color: var(--border-focus); color: var(--text); }
+.social-btn-twitter:hover { background: rgba(0,0,0,0.5); color: #e7e9ea; border-color: #333; }
+.social-btn-whatsapp:hover { background: rgba(37,211,102,0.12); color: #25d366; border-color: rgba(37,211,102,0.3); }
+.social-btn-telegram:hover { background: rgba(0,136,204,0.12); color: #0088cc; border-color: rgba(0,136,204,0.3); }
+.social-btn-copy:hover { background: var(--primary-glow); color: var(--primary-light); border-color: rgba(124,58,237,0.4); }
+
+/* ===== Comments Section ===== */
+.comments-section { }
+.comments-title { font-size: 1rem; font-weight: 700; display: flex; align-items: center; gap: 0.45rem; margin-bottom: 1.1rem; }
+.comments-title i { color: var(--primary-light); }
+.comments-count { font-size: 0.78rem; color: var(--text-dim); font-weight: 500; }
+.comment-form { margin-bottom: 1.25rem; }
+.comment-form-row { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.6rem; }
+.comment-name-input { padding: 0.6rem 0.9rem; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-xs); color: var(--text); font-size: 0.83rem; width: 100%; }
+.comment-textarea { padding: 0.6rem 0.9rem; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-xs); color: var(--text); font-size: 0.83rem; width: 100%; resize: vertical; font-family: inherit; line-height: 1.5; }
+.comment-name-input:focus, .comment-textarea:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 3px var(--primary-glow-sm); }
+.comment-submit-btn { align-self: flex-start; }
+.comments-list { display: flex; flex-direction: column; gap: 0.85rem; }
+.comments-empty { font-size: 0.82rem; color: var(--text-dim); text-align: center; padding: 1rem 0; }
+.comment-item { display: flex; gap: 0.7rem; align-items: flex-start; }
+.comment-avatar { font-size: 1.4rem; color: var(--border-light); flex-shrink: 0; margin-top: 0.1rem; line-height: 1; }
+.comment-body-wrap { flex: 1; min-width: 0; }
+.comment-meta { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.25rem; }
+.comment-author { font-size: 0.82rem; font-weight: 700; color: var(--text-muted); }
+.comment-time { font-size: 0.72rem; color: var(--text-dim); }
+.comment-text { font-size: 0.85rem; color: var(--text); line-height: 1.55; word-break: break-word; }
+
+/* ===== API Card ===== */
+.api-card { background: rgba(6,182,212,0.03); border-color: rgba(6,182,212,0.2); }
+.api-card h3 { font-size: 0.92rem; font-weight: 700; display: flex; align-items: center; gap: 0.45rem; }
+.api-card h3 i { color: var(--accent); }
+.api-endpoints { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.85rem; }
+.api-endpoint { display: flex; align-items: center; gap: 0.7rem; font-size: 0.8rem; flex-wrap: wrap; }
+.api-method { background: rgba(6,182,212,0.15); color: var(--accent); border-radius: 5px; padding: 0.15rem 0.5rem; font-size: 0.7rem; font-weight: 700; font-family: monospace; flex-shrink: 0; }
+.api-endpoint code { background: var(--bg-input); padding: 0.2rem 0.5rem; border-radius: 5px; font-size: 0.77rem; color: var(--primary-light); }
+.api-desc { color: var(--text-dim); font-size: 0.75rem; }
+
+/* ===== Dashboard poll-list-actions ===== */
+.poll-list-item { display: flex; align-items: center; gap: 1rem; padding: 0.85rem 1.1rem; background: var(--bg-card2); border: 1px solid var(--border); border-radius: var(--radius-sm); transition: all var(--transition); }
+.poll-list-item:hover { border-color: rgba(124,58,237,0.3); background: var(--bg-hover); }
+.poll-list-actions { display: flex; gap: 0.3rem; flex-shrink: 0; }
+.btn-xs { padding: 0.3rem 0.55rem; font-size: 0.72rem; }
+
+/* Fix old .poll-list-item anchor selector */
+a.poll-list-item { display: flex; }
+
